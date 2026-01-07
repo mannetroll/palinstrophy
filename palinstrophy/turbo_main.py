@@ -310,9 +310,8 @@ def _setup_shortcuts(self):
     self._sc_n = sc("N", lambda: self.n_combo.setCurrentIndex(
         (self.n_combo.currentIndex() + 1) % self.n_combo.count()
     ))
-    self._sc_r = sc("R", lambda: self.re_combo.setCurrentIndex(
-        (self.re_combo.currentIndex() + 1) % self.re_combo.count()
-    ))
+    # Re combo removed (auto visc/Re control) — keep shortcut slot reserved
+    self._sc_r = sc("R", lambda: None)
     self._sc_k = sc("K", lambda: self.k0_combo.setCurrentIndex(
         (self.k0_combo.currentIndex() + 1) % self.k0_combo.count()
     ))
@@ -411,11 +410,12 @@ class MainWindow(QMainWindow):
         )
         self.n_combo.setCurrentText(str(self.sim.N))
 
-        # Reynolds selector (Re)
-        self.re_combo = QComboBox()
-        self.re_combo.setToolTip("R: Reynolds Number (Re)")
-        self.re_combo.addItems(["10", "100", "1000", "10000", "100000", "1E6", "1E7", "1E8", "1E9", "1E10", "1E11"])
-        self.re_combo.setCurrentText(str(int(self.sim.re)))
+        # Reynolds display (Re) — now computed by adapt_visc()
+        self.re_edit = QLineEdit()
+        self.re_edit.setToolTip("Reynolds Number (Re)")
+        self.re_edit.setReadOnly(True)
+        self.re_edit.setFixedWidth(88)
+        self.re_edit.setText(str(self.sim.re))
 
         # K0 selector
         self.k0_combo = QComboBox()
@@ -458,7 +458,6 @@ class MainWindow(QMainWindow):
             self.variable_combo.setStyle(QStyleFactory.create(FUSION))
             self.cmap_combo.setStyle(QStyleFactory.create(FUSION))
             self.n_combo.setStyle(QStyleFactory.create(FUSION))
-            self.re_combo.setStyle(QStyleFactory.create(FUSION))
             self.k0_combo.setStyle(QStyleFactory.create(FUSION))
             self.cfl_combo.setStyle(QStyleFactory.create(FUSION))
             self.steps_combo.setStyle(QStyleFactory.create(FUSION))
@@ -472,6 +471,7 @@ class MainWindow(QMainWindow):
         self.setStatusBar(self.status)
         mono = QFontDatabase.systemFont(QFontDatabase.SystemFont.FixedFont)
         self.status.setFont(mono)
+        self.re_edit.setFont(mono)
 
 
         # Timer-based simulation (no QThread)
@@ -488,7 +488,6 @@ class MainWindow(QMainWindow):
         self.variable_combo.currentIndexChanged.connect(self.on_variable_changed)  # type: ignore[attr-defined]
         self.cmap_combo.currentTextChanged.connect(self.on_cmap_changed)  # type: ignore[attr-defined]
         self.n_combo.currentTextChanged.connect(self.on_n_changed)  # type: ignore[attr-defined]
-        self.re_combo.currentTextChanged.connect(self.on_re_changed)  # type: ignore[attr-defined]
         self.k0_combo.currentTextChanged.connect(self.on_k0_changed)  # type: ignore[attr-defined]
         self.cfl_combo.currentTextChanged.connect(self.on_cfl_changed)  # type: ignore[attr-defined]
         self.steps_combo.currentTextChanged.connect(self.on_steps_changed)  # type: ignore[attr-defined]
@@ -569,7 +568,7 @@ class MainWindow(QMainWindow):
         row1.addWidget(self.n_combo)
         row1.addWidget(self.variable_combo)
         row1.addWidget(self.cmap_combo)
-        row1.addWidget(self.re_combo)
+        row1.addWidget(self.re_edit)
         row1.addWidget(self.k0_combo)
         row1.addWidget(self.cfl_combo)
         row1.addWidget(self.steps_combo)
@@ -841,17 +840,6 @@ class MainWindow(QMainWindow):
         g.moveCenter(screen.center())
         self.move(g.topLeft())
 
-    def on_re_changed(self, value: str) -> None:
-        self.sim.re = float(value)
-        self.sim.state.Re = self.sim.re
-        N = int(self.sim.N)  # current grid size
-        kc = np.float32(N) / 3.0
-        nu_min = np.float32(0.2) / (kc * kc)  # = 0.2 * 9 / N**2
-        invRe = 1.0 / self.sim.re
-        visc = invRe if invRe > nu_min else nu_min
-        self.sim.state.visc = float(visc)
-        self.on_step_clicked()
-
     def on_k0_changed(self, value: str) -> None:
         self.sim.k0 = float(value)
         self.sim.reset_field()
@@ -1089,6 +1077,11 @@ class MainWindow(QMainWindow):
         except Exception:
             pass
 
+        # Auto-adapt viscosity (and thus effective Re) every rendered update
+        self.adapt_visc()
+        # show the computed Re (from adapt_visc) in the Re text field
+        self.re_edit.setText(f"Re: {self.sci_no_plus(float(self.sim.re), decimals=2)}")
+
         k = float(DISPLAY_NORM_K_STD)
         lo = self.mu - k * self.sig
         hi = self.mu + k * self.sig
@@ -1162,8 +1155,14 @@ class MainWindow(QMainWindow):
         if nu < nu_min:
             nu = nu_min
 
-        self.sim.state.visc = nu
-        self.sim.state.Re = 1.0 / nu  # optional "effective Re" display, if you want
+        # Update solver viscosity
+        self.sim.state.visc = float(nu)
+
+        # Update "effective Re" everywhere (requested)
+        Re_eff = 1.0 / float(nu)
+        self.sim.re = float(Re_eff)
+        self.sim.state.Re = float(self.sim.re)
+        # self.sim.state.visc already set above
 
     # ------------------------------------------------------------------
     def keyPressEvent(self, event) -> None:
@@ -1188,13 +1187,6 @@ class MainWindow(QMainWindow):
             idx = self.n_combo.currentIndex()
             count = self.n_combo.count()
             self.n_combo.setCurrentIndex((idx + 1) % count)
-            return
-
-        # rotate Reynolds (R)
-        if key == Qt.Key.Key_R:
-            idx = self.re_combo.currentIndex()
-            count = self.re_combo.count()
-            self.re_combo.setCurrentIndex((idx + 1) % count)
             return
 
         # rotate K0 (K)
