@@ -310,8 +310,6 @@ def _setup_shortcuts(self):
     self._sc_n = sc("N", lambda: self.n_combo.setCurrentIndex(
         (self.n_combo.currentIndex() + 1) % self.n_combo.count()
     ))
-    # Re combo removed (auto visc/Re control) — keep shortcut slot reserved
-    self._sc_r = sc("R", lambda: None)
     self._sc_k = sc("K", lambda: self.k0_combo.setCurrentIndex(
         (self.k0_combo.currentIndex() + 1) % self.k0_combo.count()
     ))
@@ -414,7 +412,7 @@ class MainWindow(QMainWindow):
         self.re_edit = QLineEdit()
         self.re_edit.setToolTip("Reynolds Number (Re)")
         self.re_edit.setReadOnly(True)
-        self.re_edit.setFixedWidth(88)
+        self.re_edit.setFixedWidth(100)
         self.re_edit.setText(str(self.sim.re))
 
         # K0 selector
@@ -447,11 +445,11 @@ class MainWindow(QMainWindow):
         self.update_combo = QComboBox()
         self.update_combo.setToolTip("U: Update intervall")
         self.update_combo.addItems(["2", "5", "10", "20", "50", "100", "1E3"])
-        self.update_combo.setCurrentText("20")
+        self.update_combo.setCurrentText("5")
 
         self.auto_reset_checkbox = QCheckBox()
         self.auto_reset_checkbox.setToolTip("If checked, simulation auto-resets")
-        self.auto_reset_checkbox.setChecked(True)
+        self.auto_reset_checkbox.setChecked(False)
 
         if sys.platform == "darwin":
             from PySide6.QtWidgets import QStyleFactory
@@ -1080,7 +1078,7 @@ class MainWindow(QMainWindow):
         # Auto-adapt viscosity (and thus effective Re) every rendered update
         self.adapt_visc()
         # show the computed Re (from adapt_visc) in the Re text field
-        self.re_edit.setText(f"Re: {self.sci_no_plus(float(self.sim.re), decimals=2)}")
+        self.re_edit.setText(f" Re: {float(self.sim.re):,.0f}")
 
         k = float(DISPLAY_NORM_K_STD)
         lo = self.mu - k * self.sig
@@ -1142,7 +1140,7 @@ class MainWindow(QMainWindow):
 
         if p > hi:
             # too much small-scale crowding: add dissipation
-            nu *= 1.25
+            nu *= 1.01
         elif p < lo:
             # safe: try less dissipation (higher Re)
             nu *= 0.98
@@ -1243,7 +1241,7 @@ def main() -> None:
     icon = QIcon(str(icon_path))
     app.setWindowIcon(icon)
 
-    sim = DnsSimulator(n=256)
+    sim = DnsSimulator(n=512)
     sim.step(1)
     window = MainWindow(sim)
     screen = app.primaryScreen().availableGeometry()
