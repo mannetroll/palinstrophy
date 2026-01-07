@@ -569,10 +569,9 @@ class MainWindow(QMainWindow):
         row1.addWidget(self.re_edit)
         row1.addWidget(self.k0_combo)
         row1.addWidget(self.cfl_combo)
+        row1.addWidget(self.update_combo)
         row1.addWidget(self.steps_combo)
         row1.addWidget(self.auto_reset_checkbox)
-        row1.addSpacing(10)
-        row1.addWidget(self.update_combo)
         main.addLayout(row1)
 
         self.setCentralWidget(central)
@@ -1118,11 +1117,11 @@ class MainWindow(QMainWindow):
         if self.palinstrophy_over_enstrophy_kmax2 is None:
             pr_str = "N/A"
         else:
-            pr_str = f"{10000*self.palinstrophy_over_enstrophy_kmax2:4.0f}"
+            pr_str = f"{10000*self.palinstrophy_over_enstrophy_kmax2:3.0f}"
 
         txt = (
-            f"  FPS: {fps_str} | pal/Zkmax^2: {pr_str} | σ: {sig_str} | Iter: {it:5d} | T: {t:6.3f} | dt: {dt:.6f} "
-            f"| {elapsed_min:4.1f} min | Visc: {visc:.3g} | {_dt.datetime.now().strftime('%Y-%m-%d %H:%M')}"
+            f"  FPS: {fps_str} | pal/Zkmax²: {pr_str} | σ: {sig_str} | Iter: {it:5d} | T: {t:6.3f} | dt: {dt:.6f} "
+            f"| {elapsed_min:4.1f} min | Visc: {visc:8.3g} | {_dt.datetime.now().strftime('%Y-%m-%d %H:%M')}"
         )
         self.status.showMessage(txt)
 
