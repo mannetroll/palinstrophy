@@ -1128,8 +1128,8 @@ class MainWindow(QMainWindow):
     def adapt_visc(self) -> None:
         # target in the "raw" metric (not *10000)
         target = 0.005
-        hi = target * 1.10
-        lo = target * 0.90
+        hi = target * 1.05
+        lo = target * 0.95
 
         p = self.palinstrophy_over_enstrophy_kmax2
         if p is None:
