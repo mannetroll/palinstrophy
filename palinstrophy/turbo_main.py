@@ -1158,6 +1158,8 @@ class MainWindow(QMainWindow):
 
         if nu < nu_min:
             nu = nu_min
+            Re_eff = 1.0 / float(nu)
+            print(f"nu_min: {nu_min:.2e}, Re_eff: {Re_eff:.0f} for N={N}")
 
         # Update solver viscosity
         self.sim.state.visc = float(nu)
