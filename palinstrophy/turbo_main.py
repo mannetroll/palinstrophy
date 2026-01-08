@@ -1063,7 +1063,6 @@ class MainWindow(QMainWindow):
         palinstrophy = self._scalar_item(pal_full)
         return palinstrophy / (total * kmax2)
 
-
     def _update_image(self, pixels: np.ndarray) -> None:
         pixels = np.asarray(pixels, dtype=np.uint8)
         if pixels.ndim != 2:
