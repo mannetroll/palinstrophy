@@ -1242,10 +1242,10 @@ Backend = Literal["cpu", "gpu", "auto"]
 def main() -> None:
     args = sys.argv[1:]
     N = int(args[0]) if len(args) > 0 else 512
-    Re = float(args[1]) if len(args) > 1 else 10000
+    Re = float(args[1]) if len(args) > 1 else 1E12
     K0 = float(args[2]) if len(args) > 2 else 10.0
-    STEPS = int(args[3]) if len(args) > 3 else 101
-    CFL = float(args[4]) if len(args) > 4 else 0.75
+    STEPS = int(args[3]) if len(args) > 3 else 1000
+    CFL = float(args[4]) if len(args) > 4 else 0.5
 
     backend_str = args[5].lower() if len(args) > 5 else "auto"
     if backend_str not in ("cpu", "gpu", "auto"):
