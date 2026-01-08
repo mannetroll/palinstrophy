@@ -811,7 +811,7 @@ class MainWindow(QMainWindow):
         CFL = self.sim.cfl
         STEPS = self.sim.get_iteration()
 
-        folder = f"cupyxturbo_{N}_{self.sci_no_plus(Re)}_{K0}_{CFL}_{STEPS}"
+        folder = f"palinstrophy_{N}_{self.sci_no_plus(Re)}_{K0}_{CFL}_{STEPS}"
 
         # Default root = Desktop
         desktop = QStandardPaths.writableLocation(
@@ -853,7 +853,7 @@ class MainWindow(QMainWindow):
         # determine variable name for filename
         var_name = self.variable_combo.currentText()
         cmap_name = self.cmap_combo.currentText()
-        default_name = f"cupyxturbo_{var_name}_{cmap_name}.png"
+        default_name = f"palinstrophy_{var_name}_{cmap_name}.png"
 
         # Default root = Desktop
         desktop = QStandardPaths.writableLocation(
