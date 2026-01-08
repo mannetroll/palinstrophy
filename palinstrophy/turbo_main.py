@@ -413,7 +413,7 @@ class MainWindow(QMainWindow):
         self.re_edit = QLineEdit()
         self.re_edit.setToolTip("Reynolds Number (Re)")
         self.re_edit.setReadOnly(True)
-        self.re_edit.setFixedWidth(100)
+        self.re_edit.setFixedWidth(120)
         self.re_edit.setText(str(self.sim.re))
 
         # K0 selector
@@ -546,7 +546,7 @@ class MainWindow(QMainWindow):
 
         # First row
         row1 = QHBoxLayout()
-        row1.setContentsMargins(20, 0, 0, 0)
+        row1.setContentsMargins(10, 0, 0, 0)
         row1.setAlignment(Qt.AlignmentFlag.AlignLeft)  # pack to left
         row1.addWidget(self.start_button)
         row1.addWidget(self.stop_button)
