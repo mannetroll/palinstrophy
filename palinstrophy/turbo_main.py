@@ -329,7 +329,7 @@ def _setup_shortcuts(self):
 _K2_CACHE: dict[tuple, object] = {}
 
 class MainWindow(QMainWindow):
-    def __init__(self, sim: DnsSimulator, iterations: int) -> None:
+    def __init__(self, sim: DnsSimulator, steps: int, iterations: int) -> None:
         super().__init__()
 
         self.sim = sim
@@ -440,7 +440,7 @@ class MainWindow(QMainWindow):
         self.steps_combo = QComboBox()
         self.steps_combo.setToolTip("S: Max steps before reset/stop")
         self.steps_combo.addItems(["100", "1000", "2000", "5000", "10000", "25000", "50000", "1E5", "2E5", "3E5", "1E6", "1E7"])
-        self.steps_combo.setCurrentText("50000")
+        self.steps_combo.setCurrentText(str(steps))
 
         # Update selector
         self.update_combo = QComboBox()
@@ -1337,7 +1337,7 @@ def main() -> None:
     N = int(args[0]) if len(args) > 0 else 512
     K0 = float(args[1]) if len(args) > 1 else 10.0
     CFL = float(args[2]) if len(args) > 2 else 0.5
-    STEPS = int(args[3]) if len(args) > 3 else 100001
+    STEPS = int(args[3]) if len(args) > 3 else 50000
     ITERATIONS = int(args[4]) if len(args) > 4 else 1E99
     app = QApplication(sys.argv)
 
@@ -1347,7 +1347,7 @@ def main() -> None:
 
     sim = DnsSimulator(n=N, k0=K0, cfl=CFL)
     sim.step(1)
-    window = MainWindow(sim, ITERATIONS)
+    window = MainWindow(sim, STEPS, ITERATIONS)
     screen = app.primaryScreen().availableGeometry()
     g = window.geometry()
     g.moveCenter(screen.center())
