@@ -440,7 +440,7 @@ class MainWindow(QMainWindow):
         # Steps selector
         self.steps_combo = QComboBox()
         self.steps_combo.setToolTip("S: Max steps before reset/stop")
-        self.steps_combo.addItems(["100", "1000", "2000", "5000", "10000", "25000", "50000", "1E5", "2E5", "3E5", "1E6", "1E7"])
+        self.steps_combo.addItems(["10", "100", "1000", "2000", "5000", "10000", "25000", "50000", "1E5", "2E5", "3E5", "1E6", "1E7"])
         self.steps_combo.setCurrentText(str(steps))
 
         # Update selector
@@ -1159,7 +1159,7 @@ class MainWindow(QMainWindow):
         if nu < nu_min:
             nu = nu_min
             Re_eff = 1.0 / float(nu)
-            print(f"nu_min: {nu_min:.2e}, Re_eff: {Re_eff:.0f} for N={N}")
+            print(f"nu_min: {nu_min:.2e}, Re_eff: {Re_eff:,.0f} for N={N}")
 
         # Update solver viscosity
         self.sim.state.visc = float(nu)
