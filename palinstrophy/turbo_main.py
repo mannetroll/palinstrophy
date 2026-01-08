@@ -1328,13 +1328,16 @@ class MainWindow(QMainWindow):
 
 # ----------------------------------------------------------------------
 def main() -> None:
+    args = sys.argv[1:]
+    N = int(args[0]) if len(args) > 0 else 512
+    STEPS = int(args[1]) if len(args) > 1 else 1E99
     app = QApplication(sys.argv)
 
     icon_path = Path(__file__).with_name("palinstrophy.icns")
     icon = QIcon(str(icon_path))
     app.setWindowIcon(icon)
 
-    sim = DnsSimulator(n=512)
+    sim = DnsSimulator(n=N)
     sim.step(1)
     window = MainWindow(sim)
     screen = app.primaryScreen().availableGeometry()
