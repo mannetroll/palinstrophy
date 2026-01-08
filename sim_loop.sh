@@ -2,7 +2,7 @@
 set -euo pipefail
 
 #
-#   $ nohup stdbuf -oL bash sim_loop.sh > sim_loop.txt 2>&1 &
+# nohup stdbuf -oL bash sim_loop.sh > sim_loop.txt 2>&1 &
 #
 
 CSV="sim_metadata.csv"
