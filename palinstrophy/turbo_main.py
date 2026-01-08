@@ -713,98 +713,96 @@ class MainWindow(QMainWindow):
         self._update_status(self.sim.get_time(), self.sim.get_iteration(), None)
         self.on_start_clicked()
 
-    def _spectrum_meta_text(self) -> str:
-        N = int(self.sim.N)
-        Re = float(self.sim.re)
-        K0 = float(self.sim.k0)
-
-        t = float(self.sim.get_time())
-        it = int(self.sim.get_iteration())
-        dt = float(self.sim.state.dt)
-        visc = float(self.sim.state.visc)
-
-        kmax = self.kmax
-        hk = self.high_k_fraction
-        pr = self.palinstrophy_over_enstrophy_kmax2
-
-        kmax_s = f"{kmax:6.1f}" if kmax is not None else "N/A"
-        hk_s = f"{hk:.2e}" if hk is not None else "N/A"
-        pr_s = f"{pr:.2e}" if pr is not None else "N/A"
-
-        kc = N / 3.0
-        return (
-            f"N={N}  Re={Re:.3g}  K0={K0:.3g}\n"
-            f"t={t:.6f}  it={it}  dt={dt:.3e}  visc={visc:.3e}\n"
-            f"kc=N/3={kc:.2f}  kmax={kmax_s}  high_k_fraction={hk_s}  pal/(Z*kmax^2)={pr_s}\n"
-            f"{_dt.datetime.now().strftime('%Y-%m-%d %H:%M')}"
-        )
-
-    def _save_omega_spectrum(self, omega: np.ndarray, filename: str) -> None:
+    def _save_omega_radial_spectrum(self, omega: np.ndarray, out_png: str) -> None:
         """
-        Save 2D FFT power spectrum image for omega:
-          - spectrum = log10(|FFT2(omega-mean)|^2)
-          - plot uses *positive* (kx>0, kz>0) quadrant so we can do log-log axes
-          - metadata is drawn as a plain text annotation (black text on white box)
+        Save a log-log radially averaged 2D FFT power spectrum (approx) as a PNG figure.
+
+        - x-axis: normalized radius  k / k_Nyquist  where k_Nyquist = N/2 (axis Nyquist)
+          => max radius reaches ~sqrt(2) at the corners.
+        - y-axis: radially averaged power (mean within radial bins)
         """
-        import numpy as _np
-        import matplotlib.pyplot as _plt
+        import matplotlib.pyplot as plt
 
-        om = _np.asarray(omega, dtype=_np.float64)
-        NZ, NX = om.shape
-
-        a = om - float(om.mean())
-        W = _np.fft.fft2(a)
-        P = _np.abs(W) ** 2
-
-        kx = _np.fft.fftfreq(NX) * NX
-        kz = _np.fft.fftfreq(NZ) * NZ
-
-        # Positive quadrant only (exclude 0 so log scales are valid)
-        ix = _np.where(kx > 0)[0]
-        iz = _np.where(kz > 0)[0]
-        if ix.size == 0 or iz.size == 0:
+        a = np.asarray(omega, dtype=np.float64)
+        if a.ndim != 2:
             return
 
-        kx_pos = kx[ix]
-        kz_pos = kz[iz]
-        P_pos = P[_np.ix_(iz, ix)]
+        NZ, NX = a.shape
+        if NZ < 2 or NX < 2:
+            return
 
-        eps = _np.finfo(_np.float64).tiny
-        Z = _np.log10(P_pos + eps)
+        # Remove mean (DC)
+        a = a - float(a.mean())
 
-        fig, ax = _plt.subplots(figsize=(7.2, 6.4), dpi=150)
-        im = ax.imshow(
-            Z,
-            origin="lower",
-            aspect="auto",
-            extent=(float(kx_pos[0]), float(kx_pos[-1]), float(kz_pos[0]), float(kz_pos[-1])),
+        # 2D FFT power
+        W = np.fft.fft2(a)
+        P = (W.real * W.real + W.imag * W.imag)  # |W|^2
+
+        # Frequency grids in "integer mode" units
+        kx = np.fft.fftfreq(NX) * NX
+        kz = np.fft.fftfreq(NZ) * NZ
+        KZ, KX = np.meshgrid(kz, kx, indexing="ij")
+
+        # Normalized radial wavenumber: k / (N/2)
+        # Use axis Nyquist based on the smaller dimension (robust if NZ!=NX)
+        N = float(min(NX, NZ))
+        k_nyq = 0.5 * N
+        R = np.sqrt(KX * KX + KZ * KZ) / k_nyq
+
+        # Exclude the DC bin (R==0) from the radial statistics
+        mask = R > 0.0
+        r = R[mask].ravel()
+        p = P[mask].ravel()
+
+        # Radial binning up to r_max = sqrt(2) (corner)
+        r_max = np.sqrt(2.0)
+        nbins = max(32, int(2 * min(NX, NZ)))  # reasonably smooth curve
+        # Map r in (0..r_max] -> bin index [0..nbins-1]
+        idx = np.floor((r / r_max) * nbins).astype(np.int64)
+        idx = np.clip(idx, 0, nbins - 1)
+
+        # Mean power per radial bin
+        psum = np.bincount(idx, weights=p, minlength=nbins)
+        cnt = np.bincount(idx, minlength=nbins).astype(np.float64)
+        good = cnt > 0.0
+        pmean = np.zeros(nbins, dtype=np.float64)
+        pmean[good] = psum[good] / cnt[good]
+
+        # Bin centers in normalized radius
+        r_edges = np.linspace(0.0, r_max, nbins + 1)
+        r_centers = 0.5 * (r_edges[:-1] + r_edges[1:])
+
+        # Plot (match “last time” style)
+        fig = plt.figure(figsize=(8, 5))
+        ax = fig.add_subplot(1, 1, 1)
+        ax.loglog(r_centers[good], pmean[good])
+        ax.set_ylim(bottom=0.1)
+        ax.set_title("Omega image: radially averaged FFT power spectrum (approx)")
+        ax.set_xlabel("normalized radius  k / k_Nyquist  (from image)")
+        ax.set_ylabel("radially averaged power")
+        k0_norm = (2.0 * float(self.sim.k0)) / float(self.sim.N)
+        ax.axvline(k0_norm)
+
+        # Metadata annotation (force black so it won't be blue)
+        # Keep it short + useful
+        meta = (
+            f"N={min(NX, NZ)}  Re={self.sim.re:g}  visc={float(self.sim.state.visc):.3g}\n"
+            f"t={float(self.sim.get_time()):.6g}  it={int(self.sim.get_iteration())}\n"
+            f"K0={self.sim.k0:g}\n"
+            f"pal/Zkmax^2={self.palinstrophy_over_enstrophy_kmax2:.2e}"
         )
-
-        ax.set_xscale("log")
-        ax.set_yscale("log")
-        ax.set_xlabel("kx")
-        ax.set_ylabel("kz")
-        ax.set_title("ω 2D FFT power spectrum  (log10 |FFT|^2)")
-
-        cbar = fig.colorbar(im, ax=ax)
-        cbar.set_label("log10 power")
-
-        meta = self._spectrum_meta_text()
         ax.text(
-            0.02,
-            0.98,
-            meta,
+            0.02, 0.02, meta,
             transform=ax.transAxes,
-            ha="left",
-            va="top",
-            fontsize=8,
-            color="black",  # <- avoids “why is it blue?”
-            bbox=dict(boxstyle="round,pad=0.3", facecolor="white", alpha=0.85, edgecolor="none"),
+            ha="left", va="bottom",
+            fontsize=12,
+            color="black",
+            bbox=dict(boxstyle="round,pad=0.25", facecolor="white", edgecolor="black", alpha=0.85),
         )
 
         fig.tight_layout()
-        fig.savefig(filename)
-        _plt.close(fig)
+        fig.savefig(out_png)
+        plt.close(fig)
 
 
     @staticmethod
@@ -856,7 +854,7 @@ class MainWindow(QMainWindow):
         self._dump_pgm_full(self._get_full_field("kinetic"), os.path.join(folder_path, "kinetic.pgm"))
         omega = self._get_full_field("omega")
         self._dump_pgm_full(omega, os.path.join(folder_path, "omega.pgm"))
-        self._save_omega_spectrum(omega, os.path.join(folder_path, "omega_spectrum.png"))
+        self._save_omega_radial_spectrum(omega, os.path.join(folder_path, "omega_spectrum.png"))
         print("[SAVE] Completed.")
 
     def on_save_clicked(self) -> None:
