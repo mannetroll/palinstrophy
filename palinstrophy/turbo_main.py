@@ -533,16 +533,6 @@ class MainWindow(QMainWindow):
         self.on_start_clicked()  # auto-start simulation immediately
 
     # ------------------------------------------------------------------
-
-    @staticmethod
-    def move_widgets(src_layout, dst_layout):
-        """Move only widgets from src_layout into dst_layout (ignore spacers)."""
-        while src_layout.count() > 0:
-            item = src_layout.takeAt(0)
-            w = item.widget()
-            if w is not None:
-                dst_layout.addWidget(w)
-
     def _build_layout(self):
         """Rebuild the control layout based on the current N."""
         old = self.centralWidget()
@@ -926,12 +916,6 @@ class MainWindow(QMainWindow):
         self._sim_start_time = time.time()
         self._sim_start_iter = self.sim.get_iteration()
 
-    def _recenter_window(self):
-        screen = QApplication.primaryScreen().availableGeometry()
-        g = self.geometry()
-        g.moveCenter(screen.center())
-        self.move(g.topLeft())
-
     def on_k0_changed(self, value: str) -> None:
         self.sim.k0 = float(value)
         self.sim.reset_field()
@@ -1019,137 +1003,11 @@ class MainWindow(QMainWindow):
             pix = (1.0 + norm * 254.0).round().clip(1, 255).astype(np.uint8)
             f.write(pix.tobytes())
 
-    @staticmethod
-    def _omega_grain_metrics(self, omega: np.ndarray) -> tuple[float, float, float]:
-        """
-        omega_grain_metrics:
-          - kmax
-          - high_k_fraction (alpha=0.8)
-          - palinstrophy_over_enstrophy_kmax2
-        """
-        omega = np.asarray(omega, dtype=np.float64)
-        NZ, NX = omega.shape
 
-        a = omega - float(omega.mean())
-        W = np.fft.fft2(a)
-        P = np.abs(W) ** 2
-
-        # Wavenumber grid (integer modes)
-        kx = np.fft.fftfreq(NX) * NX
-        kz = np.fft.fftfreq(NZ) * NZ
-        KZ, KX = np.meshgrid(kz, kx, indexing="ij")
-        K2 = KX**2 + KZ**2
-
-        mask = K2 > 0.0
-        if not np.any(mask):
-            return 0.0, 0.0, 0.0
-
-        K = np.sqrt(K2, dtype=np.float64)
-        kmax = float(K[mask].max())
-
-        total = float(P[mask].sum())
-        if total <= 0.0 or kmax <= 0.0:
-            return kmax, 0.0, 0.0
-
-        # High-k fraction near cutoff
-        alpha = 0.8
-        high = float(P[mask & (K > alpha * kmax)].sum())
-        high_k_fraction = high / total
-
-        # Enstrophy ~ sum |W|^2, palinstrophy ~ sum k^2 |W|^2
-        enstrophy = total
-        palinstrophy = float((K2[mask] * P[mask]).sum())
-        pal_over_ens_kmax2 = palinstrophy / (enstrophy * (kmax**2))
-
-        return kmax, high_k_fraction, pal_over_ens_kmax2
 
     @staticmethod
     def _scalar_item(x) -> float:
         return float(x.item()) if hasattr(x, "item") else float(x)
-
-    def _get_k2_cached(self, NZ: int, NX: int):
-        if self.sim.state.backend == "cpu":
-            import scipy.fft
-
-            key = ("cpu", NZ, NX)
-            K2 = _K2_CACHE.get(key)
-            if K2 is None:
-                kx = scipy.fft.fftfreq(NX) * NX
-                kz = scipy.fft.fftfreq(NZ) * NZ
-                # float64 k^2 grid
-                K2 = (kz[:, None] * kz[:, None]) + (kx[None, :] * kx[None, :])
-                _K2_CACHE[key] = K2
-            return K2
-
-        else:
-            import cupy as cp
-
-            dev = int(cp.cuda.runtime.getDevice())
-            key = ("cuda", dev, NZ, NX)
-            K2 = _K2_CACHE.get(key)
-            if K2 is None:
-                kx = cp.fft.fftfreq(NX) * NX
-                kz = cp.fft.fftfreq(NZ) * NZ
-                # float64 k^2 grid on GPU
-                K2 = (kz[:, None] * kz[:, None]) + (kx[None, :] * kx[None, :])
-                _K2_CACHE[key] = K2
-            return K2
-
-    def omega_pal_over_ens_kmax2(self, omega) -> float:
-        """
-        Compute only:
-            palinstrophy_over_enstrophy_kmax2
-
-        pal_over_ens_kmax2 = (sum k^2 |W|^2) / (sum |W|^2 * kmax^2)
-        where W = FFT(omega - mean(omega)), and the k=0 mode is excluded from enstrophy.
-        """
-        if self.sim.state.backend == "cpu":
-            import scipy.fft
-
-            omega = np.asarray(omega, dtype=np.float64)
-            NZ, NX = omega.shape
-
-            a = omega - float(omega.mean())
-            W = scipy.fft.fft2(a)
-
-            P = W.real * W.real + W.imag * W.imag
-
-            K2 = self._get_k2_cached(NZ, NX)
-
-            total = float(P.sum() - P[0, 0])
-            if total <= 0.0:
-                return 0.0
-
-            kmax2 = float(K2.max())
-            if kmax2 <= 0.0:
-                return 0.0
-
-            palinstrophy = float((K2 * P).sum())
-            return palinstrophy / (total * kmax2)
-
-        else:
-            import cupy as cp
-
-            omega = cp.asarray(omega, dtype=cp.float64)
-            NZ, NX = omega.shape
-
-            a = omega - omega.mean()
-            W = cp.fft.fft2(a)
-
-            P = W.real * W.real + W.imag * W.imag
-
-            K2 = self._get_k2_cached(NZ, NX)
-
-            total = self._scalar_item(P.sum() - P[0, 0])
-            if total <= 0.0:
-                return 0.0
-
-            kmax2 = self._scalar_item(K2.max())
-            if kmax2 <= 0.0:
-                return 0.0
-
-            palinstrophy = self._scalar_item((K2 * P).sum())
-            return palinstrophy / (total * kmax2)
 
     def pal_over_ens_kmax2(self) -> float:
         """
