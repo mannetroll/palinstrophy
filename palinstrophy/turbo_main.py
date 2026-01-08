@@ -776,7 +776,7 @@ class MainWindow(QMainWindow):
         fig = plt.figure(figsize=(8, 5))
         ax = fig.add_subplot(1, 1, 1)
         ax.loglog(r_centers[good], pmean[good])
-        ax.set_ylim(bottom=0.1)
+        ax.set_ylim(bottom=1)
         ax.set_title("Omega image: radially averaged FFT power spectrum (approx)")
         ax.set_xlabel("normalized radius  k / k_Nyquist  (from image)")
         ax.set_ylabel("radially averaged power")
