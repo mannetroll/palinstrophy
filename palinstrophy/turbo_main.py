@@ -1149,7 +1149,9 @@ class MainWindow(QMainWindow):
             # safe: try less dissipation (higher Re)
             nu *= 0.98
 
+
         # also enforce your resolution floor nu_min(N)
+        """
         N = int(self.sim.N)
         kc = float(N) / 3.0
         nu_min = 0.2 / (kc * kc)
@@ -1158,6 +1160,7 @@ class MainWindow(QMainWindow):
             nu = nu_min
             Re_eff = 1.0 / float(nu)
             print(f"nu_min: {nu_min:.2e}, Re_eff: {Re_eff:,.0f} for N={N}")
+        """
 
         # Update solver viscosity
         self.sim.state.visc = float(nu)
