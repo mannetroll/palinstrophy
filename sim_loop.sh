@@ -6,7 +6,7 @@ set -euo pipefail
 #
 
 CSV="sim_metadata.csv"
-[[ -s "$CSV" ]] || echo "N,Re,K0,CFL,VISC,STEPS" > "$CSV"
+[[ -s "$CSV" ]] || echo "N, Re, K0, CFL, VISC, STEPS" > "$CSV"
 
 for N in 256 512 1024 2048 4096 8192; do
   for K in 5 10 15 20; do
