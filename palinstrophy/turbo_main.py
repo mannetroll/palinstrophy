@@ -346,6 +346,7 @@ class MainWindow(QMainWindow):
 
         # --- central image label ---
         self.image_label = QLabel()
+        self.image_label.setContentsMargins(0, 0, 0, 0)
         # allow shrinking when grid size becomes smaller
         self.image_label.setSizePolicy(
             self.image_label.sizePolicy().horizontalPolicy(),
@@ -353,7 +354,6 @@ class MainWindow(QMainWindow):
         )
         self.image_label.setMinimumSize(1, 1)
         self.image_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-
 
         style = QApplication.style()
 
@@ -541,7 +541,7 @@ class MainWindow(QMainWindow):
 
         central = QWidget()
         main = QVBoxLayout(central)
-        main.setSpacing(5)
+        main.setSpacing(3)
         main.addWidget(self.image_label)
 
         # First row
@@ -562,6 +562,7 @@ class MainWindow(QMainWindow):
         row1.addWidget(self.cfl_combo)
         row1.addWidget(self.update_combo)
         row1.addWidget(self.steps_combo)
+        row1.addSpacing(5)
         row1.addWidget(self.auto_reset_checkbox)
         main.addLayout(row1)
 
