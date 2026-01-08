@@ -13,7 +13,7 @@ for N in 256 512 1024 2048 4096 8192; do
     LOG="output_N${N}_K${K}.log"
     echo "Running N=${N} K=${K} ..."
     # N RE K STEPS CFL backend UPDATE ITERATIONS
-    PYTHONUNBUFFERED=1 uv run -- turbulence "$N" 1E15 "$K" 1E5 0.2 auto 10 50000 2>&1 \
+    PYTHONUNBUFFERED=1 uv run -- turbulence "$N" 1E15 "$K" 1E5 0.2 auto 10 50 2>&1 \
       | stdbuf -oL -eL tee -a "$LOG" \
       | awk -v csv="$CSV" '
           $0=="N, Re, K0, CFL, VISC, STEPS" { grab=1; next }

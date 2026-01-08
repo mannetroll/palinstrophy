@@ -997,7 +997,7 @@ class MainWindow(QMainWindow):
             VISC = self.sim.state.visc
             print("N, Re, K0, CFL, VISC, STEPS")
             print(f"{N}, {Re:.4e}, {K0}, {CFL}, {VISC:.4e}, {STEPS}")
-            folder = f"palinstrophy_{N}_{self.sci_no_plus(Re)}_{K0}_{CFL}_{STEPS}"
+            folder = f"simulations/palinstrophy_{N}_{self.sci_no_plus(Re)}_{K0}_{CFL}_{STEPS}"
             # Default root = Desktop
             desktop = QStandardPaths.writableLocation(
                 QStandardPaths.StandardLocation.DesktopLocation
