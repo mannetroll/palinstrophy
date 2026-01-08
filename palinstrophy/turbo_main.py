@@ -419,7 +419,7 @@ class MainWindow(QMainWindow):
         # K0 selector
         self.k0_combo = QComboBox()
         self.k0_combo.setToolTip("K: Initial energy peak wavenumber (K0)")
-        self.k0_combo.addItems(["5", "10", "15", "20", "25", "35", "50", "90"])
+        self.k0_combo.addItems(["1", "2", "5", "10", "15", "20", "25", "35", "50", "90"])
         self.k0_combo.setCurrentText(str(int(self.sim.k0)))
 
         # Colormap selector
