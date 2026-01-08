@@ -329,10 +329,11 @@ def _setup_shortcuts(self):
 _K2_CACHE: dict[tuple, object] = {}
 
 class MainWindow(QMainWindow):
-    def __init__(self, sim: DnsSimulator) -> None:
+    def __init__(self, sim: DnsSimulator, iterations: int) -> None:
         super().__init__()
 
         self.sim = sim
+        self.iterations = iterations
         self.current_cmap_name = DEFAULT_CMAP_NAME
 
         self.sig: float = 20.0
@@ -990,6 +991,10 @@ class MainWindow(QMainWindow):
                 self.timer.stop()
                 print("Max steps reached — simulation stopped (Auto-Reset OFF).")
 
+        if self.sim.get_iteration() >= self.iterations:
+            print("Max iteration reached — exiting.")
+            QApplication.quit()
+
     # ------------------------------------------------------------------
     @staticmethod
     def _dump_pgm_full(arr: np.ndarray, filename: str):
@@ -1330,16 +1335,19 @@ class MainWindow(QMainWindow):
 def main() -> None:
     args = sys.argv[1:]
     N = int(args[0]) if len(args) > 0 else 512
-    STEPS = int(args[1]) if len(args) > 1 else 1E99
+    K0 = float(args[1]) if len(args) > 1 else 10.0
+    CFL = float(args[2]) if len(args) > 2 else 0.5
+    STEPS = int(args[3]) if len(args) > 3 else 100001
+    ITERATIONS = int(args[4]) if len(args) > 4 else 1E99
     app = QApplication(sys.argv)
 
     icon_path = Path(__file__).with_name("palinstrophy.icns")
     icon = QIcon(str(icon_path))
     app.setWindowIcon(icon)
 
-    sim = DnsSimulator(n=N)
+    sim = DnsSimulator(n=N, k0=K0, cfl=CFL)
     sim.step(1)
-    window = MainWindow(sim)
+    window = MainWindow(sim, ITERATIONS)
     screen = app.primaryScreen().availableGeometry()
     g = window.geometry()
     g.moveCenter(screen.center())
