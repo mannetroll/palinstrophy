@@ -981,10 +981,10 @@ class MainWindow(QMainWindow):
                 self._sim_start_iter = self.sim.get_iteration()
             else:
                 self.timer.stop()
-                print("Max steps reached — simulation stopped (Auto-Reset OFF).")
+                print(" Max steps reached — simulation stopped (Auto-Reset OFF).")
 
         if self.sim.get_iteration() >= self.iterations:
-            print("Max iteration reached — exiting.")
+            print(" Max iteration reached — exiting.")
             QApplication.quit()
 
     # ------------------------------------------------------------------
