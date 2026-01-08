@@ -836,6 +836,9 @@ class MainWindow(QMainWindow):
         else:
             return
 
+        self.dump_to_folder(base_dir, folder)
+
+    def dump_to_folder(self, base_dir: str, folder: str):
         # Build final path
         folder_path = os.path.join(base_dir, folder)
         os.makedirs(folder_path, exist_ok=True)
@@ -981,10 +984,25 @@ class MainWindow(QMainWindow):
                 self._sim_start_iter = self.sim.get_iteration()
             else:
                 self.timer.stop()
-                print(" Max steps reached — simulation stopped (Auto-Reset OFF).")
+                print(" Max steps reached, simulation stopped (Auto-Reset OFF)")
 
         if self.sim.get_iteration() >= self.iterations:
-            print(" Max iteration reached — exiting.")
+            print(f" Max iteration reached: {self.iterations}, exiting...")
+            # --- Build the default folder name ---
+            N = self.sim.N
+            Re = self.sim.state.Re
+            K0 = self.sim.k0
+            CFL = self.sim.cfl
+            STEPS = self.sim.get_iteration()
+            VISC = self.sim.state.visc
+            print(" N, Re, K0, CFL, VISC, STEPS")
+            print(f" {N}, {Re:.4e}, {K0}, {CFL}, {VISC:.4e}, {STEPS}")
+            folder = f"palinstrophy_{N}_{self.sci_no_plus(Re)}_{K0}_{CFL}_{STEPS}"
+            # Default root = Desktop
+            desktop = QStandardPaths.writableLocation(
+                QStandardPaths.StandardLocation.DesktopLocation
+            )
+            self.dump_to_folder(desktop, folder)
             QApplication.quit()
 
     # ------------------------------------------------------------------
