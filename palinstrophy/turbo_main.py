@@ -328,10 +328,12 @@ def _setup_shortcuts(self):
 _K2_CACHE: dict[tuple, object] = {}
 
 class MainWindow(QMainWindow):
-    def __init__(self, sim: DnsSimulator, steps: int, iterations: int) -> None:
+    def __init__(self, sim: DnsSimulator, steps: int, update: int, iterations: int) -> None:
         super().__init__()
 
         self.sim = sim
+        self.update = update
+        self.steps = steps
         self.iterations = iterations
         self.current_cmap_name = DEFAULT_CMAP_NAME
 
@@ -445,7 +447,7 @@ class MainWindow(QMainWindow):
         self.update_combo = QComboBox()
         self.update_combo.setToolTip("U: Update intervall")
         self.update_combo.addItems(["2", "5", "10", "20", "50", "100", "1E3"])
-        self.update_combo.setCurrentText("5")
+        self.update_combo.setCurrentText(str(update))
 
         self.auto_reset_checkbox = QCheckBox()
         self.auto_reset_checkbox.setToolTip("If checked, simulation auto-resets")
@@ -1252,7 +1254,8 @@ def main() -> None:
         backend_str = "auto"
     backend: Backend = cast(Backend, backend_str)
 
-    ITERATIONS = int(args[6]) if len(args) > 6 else 10**10
+    UPDATE = float(args[6]) if len(args) > 6 else 5
+    ITERATIONS = int(args[7]) if len(args) > 7 else 10**9
 
     app = QApplication(sys.argv)
     icon_path = Path(__file__).with_name("palinstrophy.icns")
@@ -1261,7 +1264,7 @@ def main() -> None:
 
     sim = DnsSimulator(n=N, re=Re, k0=K0, cfl=CFL, backend=backend)
     sim.step(1)
-    window = MainWindow(sim, STEPS, ITERATIONS)
+    window = MainWindow(sim, STEPS, UPDATE, ITERATIONS)
     screen = app.primaryScreen().availableGeometry()
     g = window.geometry()
     g.moveCenter(screen.center())
