@@ -70,7 +70,7 @@ From the project root:
 
 ## The DNS with SciPy (1024 x 1024)
 
-![SciPy](https://raw.githubusercontent.com/mannetroll/cupyxturbo/main/window1024.png)
+![SciPy](https://raw.githubusercontent.com/mannetroll/palinstrophy/main/window1024.png)
 
 
 ### Full CLI
@@ -124,7 +124,7 @@ Or let the backend auto-detect:
 
 ## The DNS with CuPy (8192 x 8192) Dedicated GPU memory 18/24 GB
 
-![CuPy](https://raw.githubusercontent.com/mannetroll/cupyxturbo/main/window8192.png)
+![CuPy](https://raw.githubusercontent.com/mannetroll/palinstrophy/main/window8192.png)
 
 
 ## Profiling
@@ -151,7 +151,6 @@ Visualize the profile:
 
     $ snakeviz turbo_simulator.prof
 
-
 ### Memory & CPU profiling with Scalene (GUI)
 
 Install Scalene:
@@ -175,13 +174,13 @@ For a terminal-only summary:
 ```
 $ curl -LsSf https://astral.sh/uv/install.sh | sh
 $ uv cache clean mannetroll-palinstrophy
-$ uv run --python 3.13 --with mannetroll-cupyxturbo==0.1.4 -- turbulence
+$ uv run --python 3.13 --with mannetroll-palinstrophy==0.1.0 -- turbulence
 ```
 
 ## one-liner GPU/CuPy
 
 ```
-$ uv run --python 3.13 --with mannetroll-cupyxturbo[cuda]==0.1.4 -- turbulence
+$ uv run --python 3.13 --with mannetroll-palinstrophy[cuda]==0.1.0 -- turbulence
 ```
 
 ## License
