@@ -1253,16 +1253,16 @@ class MainWindow(QMainWindow):
 Backend = Literal["cpu", "gpu", "auto"]
 def main() -> None:
     args = sys.argv[1:]
-    N = int(args[0]) if len(args) > 0 else 512
+    N = int(args[0]) if len(args) > 0 else 256
 
     kc = float(N) / 3.0
     nu_min = 0.2 / (kc * kc)
     Re_eff = 1.0 / float(nu_min)
     Re = float(args[1]) if len(args) > 1 else Re_eff
 
-    K0 = float(args[2]) if len(args) > 2 else 15
+    K0 = float(args[2]) if len(args) > 2 else 20
     STEPS = args[3] if len(args) > 3 else "50000"
-    CFL = float(args[4]) if len(args) > 4 else 0.5
+    CFL = float(args[4]) if len(args) > 4 else 0.25
 
     backend_str = args[5].lower() if len(args) > 5 else "auto"
     if backend_str not in ("cpu", "gpu", "auto"):
