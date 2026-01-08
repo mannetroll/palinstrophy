@@ -433,7 +433,7 @@ class MainWindow(QMainWindow):
         # CFL selector
         self.cfl_combo = QComboBox()
         self.cfl_combo.setToolTip("L: Controlling Δt (CFL)")
-        self.cfl_combo.addItems(["0.05", "0.1", "0.15", "0.25", "0.5", "0.75", "0.85", "0.95"])
+        self.cfl_combo.addItems(["0.05", "0.1", "0.2", "0.3", "0.4", "0.5", "0.75", "0.85", "0.95"])
         self.cfl_combo.setCurrentText(str(self.sim.cfl))
 
         # Steps selector
@@ -1253,16 +1253,16 @@ class MainWindow(QMainWindow):
 Backend = Literal["cpu", "gpu", "auto"]
 def main() -> None:
     args = sys.argv[1:]
-    N = int(args[0]) if len(args) > 0 else 256
+    N = int(args[0]) if len(args) > 0 else 512
 
     kc = float(N) / 3.0
     nu_min = 0.2 / (kc * kc)
     Re_eff = 1.0 / float(nu_min)
     Re = float(args[1]) if len(args) > 1 else Re_eff
 
-    K0 = float(args[2]) if len(args) > 2 else 20
+    K0 = float(args[2]) if len(args) > 2 else 15
     STEPS = args[3] if len(args) > 3 else "50000"
-    CFL = float(args[4]) if len(args) > 4 else 0.25
+    CFL = float(args[4]) if len(args) > 4 else 0.3
 
     backend_str = args[5].lower() if len(args) > 5 else "auto"
     if backend_str not in ("cpu", "gpu", "auto"):
