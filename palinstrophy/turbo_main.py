@@ -1151,6 +1151,58 @@ class MainWindow(QMainWindow):
             palinstrophy = self._scalar_item((K2 * P).sum())
             return palinstrophy / (total * kmax2)
 
+    def pal_over_ens_kmax2(self) -> float:
+        """
+        Fast path for the palinstrophy/enstrophy metric using the *spectral* vorticity band.
+
+        Uses S.om2 (rFFT in x, full FFT in z) and S.step3_K2 (k^2 on the same grid),
+        so we avoid ω→physical and a full FFT per rendered frame.
+
+        The rFFT half-spectrum is expanded via weights:
+          • kx=0 and kx=NX/2 columns counted once
+          • all interior kx columns counted twice (conjugate symmetry)
+        """
+        S = self.sim.state
+
+        band = S.om2
+        P = band.real * band.real + band.imag * band.imag  # |W|^2 on the (NZ, NX_half) rFFT grid
+        K2 = S.step3_K2  # k^2 on the same grid
+
+        NX_half = int(P.shape[1])
+
+        if NX_half == 1:
+            total = self._scalar_item(P.sum() - P[0, 0])
+            if total <= 0.0:
+                return 0.0
+
+            kmax2 = self._scalar_item(K2.max())
+            if kmax2 <= 0.0:
+                return 0.0
+
+            palinstrophy = self._scalar_item((K2 * P).sum())
+            return palinstrophy / (total * kmax2)
+
+        # Full-spectrum weighted sums from the rFFT half-spectrum
+        edge = P[:, 0].sum() + P[:, -1].sum()
+        mid = P[:, 1:-1].sum() if NX_half > 2 else 0.0
+        total_full = edge + 2.0 * mid
+
+        # Exclude k=0 mode (mean ω)
+        total = self._scalar_item(total_full - P[0, 0])
+        if total <= 0.0:
+            return 0.0
+
+        kmax2 = self._scalar_item(K2.max())
+        if kmax2 <= 0.0:
+            return 0.0
+
+        edge_p = (K2[:, 0] * P[:, 0]).sum() + (K2[:, -1] * P[:, -1]).sum()
+        mid_p = (K2[:, 1:-1] * P[:, 1:-1]).sum() if NX_half > 2 else 0.0
+        pal_full = edge_p + 2.0 * mid_p
+
+        palinstrophy = self._scalar_item(pal_full)
+        return palinstrophy / (total * kmax2)
+
 
     def _update_image(self, pixels: np.ndarray) -> None:
         pixels = np.asarray(pixels, dtype=np.uint8)
@@ -1167,11 +1219,7 @@ class MainWindow(QMainWindow):
             return
 
         # --- grain metrics for stability (from ω field, full grid) ---
-        try:
-            omega = self._get_full_field("omega")
-            self.palinstrophy_over_enstrophy_kmax2 = self.omega_pal_over_ens_kmax2(omega)
-        except Exception:
-            pass
+        self.palinstrophy_over_enstrophy_kmax2 = self.pal_over_ens_kmax2()
 
         # Auto-adapt viscosity (and thus effective Re) every rendered update
         self.adapt_visc()
