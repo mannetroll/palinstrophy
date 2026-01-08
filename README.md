@@ -66,7 +66,7 @@ From the project root:
 
     $ uv sync
     $ uv run -- turbulence
-    $ uv run -- turbulence 512 1E12 20 1000 0.25 auto
+    $ uv run -- turbulence 2048 1E12 15 10 0.5 auto 5
     $ uv run -- sim
 
 ## The DNS with SciPy (1024 x 1024)
@@ -108,7 +108,7 @@ On a CUDA machine (e.g. RTX 3090):
 
        $ uv sync --extra cuda
        $ uv run -- turbulence
-       $ uv run -- turbulence 512 1E12 15 1000 0.25 auto
+       $ uv run -- turbulence 2048 1E12 15 10 0.5 auto 5
        $ uv run -- sim
 
 3. Verify that CuPy sees the GPU:
@@ -169,7 +169,7 @@ Run with GUI report:
 For a terminal-only summary:
 
     $ scalene --cli --cpu -m palinstrophy.turbo_simulator 512 10000 10 201 0.75 cpu
-    $ scalene --cli --cpu -m palinstrophy.turbo_main 512 1E12 15 201 0.25 auto 1001
+    $ scalene --cli --cpu -m palinstrophy.turbo_main 2048 1E12 15 1000 0.5 auto 5 100 
 
 ## one-liner CPU/SciPy
 

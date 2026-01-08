@@ -328,7 +328,7 @@ def _setup_shortcuts(self):
 _K2_CACHE: dict[tuple, object] = {}
 
 class MainWindow(QMainWindow):
-    def __init__(self, sim: DnsSimulator, steps: int, update: int, iterations: int) -> None:
+    def __init__(self, sim: DnsSimulator, steps: str, update: str, iterations: int) -> None:
         super().__init__()
 
         self.sim = sim
@@ -336,6 +336,8 @@ class MainWindow(QMainWindow):
         self.steps = steps
         self.iterations = iterations
         self.current_cmap_name = DEFAULT_CMAP_NAME
+        self._status_update_counter = 0
+        self._update_intervall = update
 
         self.sig: float = 20.0
         self.mu: float = 0.0
@@ -393,9 +395,6 @@ class MainWindow(QMainWindow):
         self.folder_button.setFixedSize(28, 28)
         self.folder_button.setIconSize(QSize(14, 14))
 
-        self._status_update_counter = 0
-        self._update_intervall = 2
-
         # Variable selector
         self.variable_combo = QComboBox()
         self.variable_combo.setToolTip("V: Variable")
@@ -441,13 +440,13 @@ class MainWindow(QMainWindow):
         self.steps_combo = QComboBox()
         self.steps_combo.setToolTip("S: Max steps before reset/stop")
         self.steps_combo.addItems(["10", "100", "1000", "2000", "5000", "10000", "25000", "50000", "1E5", "2E5", "3E5", "1E6", "1E7"])
-        self.steps_combo.setCurrentText(str(steps))
+        self.steps_combo.setCurrentText(steps)
 
         # Update selector
         self.update_combo = QComboBox()
         self.update_combo.setToolTip("U: Update intervall")
         self.update_combo.addItems(["2", "5", "10", "20", "50", "100", "1E3"])
-        self.update_combo.setCurrentText(str(update))
+        self.update_combo.setCurrentText(update)
 
         self.auto_reset_checkbox = QCheckBox()
         self.auto_reset_checkbox.setToolTip("If checked, simulation auto-resets")
@@ -1246,8 +1245,8 @@ def main() -> None:
     args = sys.argv[1:]
     N = int(args[0]) if len(args) > 0 else 512
     Re = float(args[1]) if len(args) > 1 else 1E12
-    K0 = float(args[2]) if len(args) > 2 else 15.0
-    STEPS = int(args[3]) if len(args) > 3 else 50000
+    K0 = float(args[2]) if len(args) > 2 else 15
+    STEPS = args[3] if len(args) > 3 else "50000"
     CFL = float(args[4]) if len(args) > 4 else 0.5
 
     backend_str = args[5].lower() if len(args) > 5 else "auto"
@@ -1255,7 +1254,7 @@ def main() -> None:
         backend_str = "auto"
     backend: Backend = cast(Backend, backend_str)
 
-    UPDATE = float(args[6]) if len(args) > 6 else 5
+    UPDATE = args[6]  if len(args) > 6 else "5"
     ITERATIONS = int(args[7]) if len(args) > 7 else 10**9
 
     app = QApplication(sys.argv)
