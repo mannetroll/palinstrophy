@@ -713,6 +713,105 @@ class MainWindow(QMainWindow):
         self._update_status(self.sim.get_time(), self.sim.get_iteration(), None)
         self.on_start_clicked()
 
+    def _save_omega_spectrum_figure(self, omega: np.ndarray, out_png: str) -> None:
+        """
+        Save an annotated omega power spectrum figure (PNG).
+        Metadata is embedded as text annotation in the figure (no CSV/JSON).
+        """
+        import matplotlib
+        matplotlib.use("Agg")  # headless / safe in GUI apps
+        import matplotlib.pyplot as plt
+
+        omega = np.asarray(omega, dtype=np.float64)
+        NZ, NX = omega.shape
+
+        # Remove mean (k=0)
+        a = omega - float(omega.mean())
+
+        # 2D spectrum
+        W = np.fft.fft2(a)
+        P2 = (np.abs(W) ** 2)
+
+        # Wavenumber grid (integer modes)
+        kx = np.fft.fftfreq(NX) * NX
+        kz = np.fft.fftfreq(NZ) * NZ
+        KZ, KX = np.meshgrid(kz, kx, indexing="ij")
+        K = np.sqrt(KX * KX + KZ * KZ)
+
+        # Radial binning (integer k shells)
+        k_int = K.astype(np.int32)
+        kmax = int(k_int.max())
+
+        # Exclude k=0
+        mask = (k_int > 0)
+
+        # Shell sums
+        shell_E = np.bincount(k_int[mask].ravel(), weights=P2[mask].ravel(), minlength=kmax + 1)
+        shell_N = np.bincount(k_int[mask].ravel(), minlength=kmax + 1)
+
+        # Avoid divide-by-zero
+        shell_N = np.maximum(shell_N, 1)
+        Ek = shell_E / shell_N  # mean energy per shell
+
+        k = np.arange(kmax + 1, dtype=np.float64)
+        k_plot = k[1:]
+        Ek_plot = Ek[1:]
+
+        # Optional: normalize for display
+        total = float(shell_E[1:].sum())
+        Ek_norm = (Ek_plot / total) if total > 0.0 else Ek_plot
+
+        # Cutoff markers (2/3 rule): kc ~ N/3
+        N = int(self.sim.N)
+        kc = float(N) / 3.0
+        alpha = 0.8
+
+        # ---- metadata text (annotation) ----
+        it = int(self.sim.get_iteration())
+        t = float(self.sim.get_time())
+        dt = float(self.sim.state.dt)
+        Re = float(self.sim.re)
+        visc = float(self.sim.state.visc)
+
+        kmax_m = self.kmax
+        hk_m = self.high_k_fraction
+        pr_m = self.palinstrophy_over_enstrophy_kmax2
+
+        meta = (
+            f"N={N}   Re={Re:.4g}   visc={visc:.4g}\n"
+            f"it={it}   t={t:.6g}   dt={dt:.6g}\n"
+            f"kc=N/3={kc:.3g}   alpha*kc={alpha * kc:.3g}\n"
+            f"kmax={kmax_m if kmax_m is not None else 'N/A'}   "
+            f"high_k_fraction={hk_m if hk_m is not None else 'N/A'}   "
+            f"pal/Zkmax^2={pr_m if pr_m is not None else 'N/A'}\n"
+            f"saved: {_dt.datetime.now().strftime('%Y-%m-%d %H:%M')}"
+        )
+
+        # ---- plot ----
+        fig, ax = plt.subplots(figsize=(7, 5))
+        ax.semilogy(k_plot, Ek_norm, marker=".", linestyle="-")
+        ax.axvline(kc, linestyle="--")
+        ax.axvline(alpha * kc, linestyle=":")
+
+        ax.set_xlabel("k (integer shell)")
+        ax.set_ylabel("E(k) / sum(E)  (omega power, radially binned)")
+        ax.set_title("Ω spectrum (radial)")
+
+        ax.text(
+            0.01, 0.25, meta,
+            transform=ax.transAxes,
+            ha="left", va="top",
+            fontsize=8,
+            family="monospace",
+            color="black",
+            bbox=dict(boxstyle="round,pad=0.3", alpha=0.05),
+        )
+
+        fig.tight_layout()
+        fig.savefig(out_png, dpi=160)
+        plt.close(fig)
+
+
     @staticmethod
     def sci_no_plus(x, decimals=0):
         x = float(x)
@@ -760,7 +859,9 @@ class MainWindow(QMainWindow):
         self._dump_pgm_full(self._get_full_field("u"), os.path.join(folder_path, "u_velocity.pgm"))
         self._dump_pgm_full(self._get_full_field("v"), os.path.join(folder_path, "v_velocity.pgm"))
         self._dump_pgm_full(self._get_full_field("kinetic"), os.path.join(folder_path, "kinetic.pgm"))
-        self._dump_pgm_full(self._get_full_field("omega"), os.path.join(folder_path, "omega.pgm"))
+        omega = self._get_full_field("omega")
+        self._dump_pgm_full(omega, os.path.join(folder_path, "omega.pgm"))
+        self._save_omega_spectrum_figure(omega, os.path.join(folder_path, "omega_spectrum.png"))
         print("[SAVE] Completed.")
 
     def on_save_clicked(self) -> None:
