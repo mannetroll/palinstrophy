@@ -413,7 +413,7 @@ class MainWindow(QMainWindow):
         self.re_edit = QLineEdit()
         self.re_edit.setToolTip("Reynolds Number (Re)")
         self.re_edit.setReadOnly(True)
-        self.re_edit.setFixedWidth(120)
+        self.re_edit.setFixedWidth(140)
         self.re_edit.setText(str(self.sim.re))
 
         # K0 selector
@@ -891,7 +891,14 @@ class MainWindow(QMainWindow):
 
     def on_n_changed(self, value: str) -> None:
         N = int(value)
+        # Estimate Re
+        kc = float(N) / 3.0
+        nu_min = 0.2 / (kc * kc)
+        Re_eff = 1.0 / float(nu_min)
+        self.sim.re = Re_eff
+        self.sim.state.Re = Re_eff
         self.sim.set_N(N)
+
 
         # 1) Update the image first
         self._update_image(self.sim.get_frame_pixels())
@@ -1082,7 +1089,7 @@ class MainWindow(QMainWindow):
         # Auto-adapt viscosity (and thus effective Re) every rendered update
         self.adapt_visc()
         # show the computed Re (from adapt_visc) in the Re text field
-        self.re_edit.setText(f" Re: {float(self.sim.re):,.0f}")
+        self.re_edit.setText(f"Re: {float(self.sim.re):,.0f}")
 
         k = float(DISPLAY_NORM_K_STD)
         lo = self.mu - k * self.sig
@@ -1247,7 +1254,12 @@ Backend = Literal["cpu", "gpu", "auto"]
 def main() -> None:
     args = sys.argv[1:]
     N = int(args[0]) if len(args) > 0 else 512
-    Re = float(args[1]) if len(args) > 1 else 1E12
+
+    kc = float(N) / 3.0
+    nu_min = 0.2 / (kc * kc)
+    Re_eff = 1.0 / float(nu_min)
+    Re = float(args[1]) if len(args) > 1 else Re_eff
+
     K0 = float(args[2]) if len(args) > 2 else 15
     STEPS = args[3] if len(args) > 3 else "50000"
     CFL = float(args[4]) if len(args) > 4 else 0.5
