@@ -167,7 +167,8 @@ Run with GUI report:
 
 For a terminal-only summary:
 
-    $ scalene --cli --cpu -m palinstrophy.turbo_simulator 256 10000 10 201 0.75 cpu
+    $ scalene --cli --cpu -m palinstrophy.turbo_simulator 512 10000 10 201 0.75 cpu
+    $ scalene --cli --cpu -m palinstrophy.turbo_main 1024 10 0.5 10000 1001
 
 ## one-liner CPU/SciPy
 
