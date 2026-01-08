@@ -713,103 +713,98 @@ class MainWindow(QMainWindow):
         self._update_status(self.sim.get_time(), self.sim.get_iteration(), None)
         self.on_start_clicked()
 
-    def _save_omega_spectrum_figure(self, omega: np.ndarray, out_png: str) -> None:
-        """
-        Save an annotated omega power spectrum figure (PNG).
-        Metadata is embedded as text annotation in the figure (no CSV/JSON).
-        """
-        import matplotlib
-        matplotlib.use("Agg")  # headless / safe in GUI apps
-        import matplotlib.pyplot as plt
-
-        omega = np.asarray(omega, dtype=np.float64)
-        NZ, NX = omega.shape
-
-        # Remove mean (k=0)
-        a = omega - float(omega.mean())
-
-        # 2D spectrum
-        W = np.fft.fft2(a)
-        P2 = (np.abs(W) ** 2)
-
-        # Wavenumber grid (integer modes)
-        kx = np.fft.fftfreq(NX) * NX
-        kz = np.fft.fftfreq(NZ) * NZ
-        KZ, KX = np.meshgrid(kz, kx, indexing="ij")
-        K = np.sqrt(KX * KX + KZ * KZ)
-
-        # Radial binning (integer k shells)
-        k_int = K.astype(np.int32)
-        kmax = int(k_int.max())
-
-        # Exclude k=0
-        mask = (k_int > 0)
-
-        # Shell sums
-        shell_E = np.bincount(k_int[mask].ravel(), weights=P2[mask].ravel(), minlength=kmax + 1)
-        shell_N = np.bincount(k_int[mask].ravel(), minlength=kmax + 1)
-
-        # Avoid divide-by-zero
-        shell_N = np.maximum(shell_N, 1)
-        Ek = shell_E / shell_N  # mean energy per shell
-
-        k = np.arange(kmax + 1, dtype=np.float64)
-        k_plot = k[1:]
-        Ek_plot = Ek[1:]
-
-        # Optional: normalize for display
-        total = float(shell_E[1:].sum())
-        Ek_norm = (Ek_plot / total) if total > 0.0 else Ek_plot
-
-        # Cutoff markers (2/3 rule): kc ~ N/3
+    def _spectrum_meta_text(self) -> str:
         N = int(self.sim.N)
-        kc = float(N) / 3.0
-        alpha = 0.8
-
-        # ---- metadata text (annotation) ----
-        it = int(self.sim.get_iteration())
-        t = float(self.sim.get_time())
-        dt = float(self.sim.state.dt)
         Re = float(self.sim.re)
+        K0 = float(self.sim.k0)
+
+        t = float(self.sim.get_time())
+        it = int(self.sim.get_iteration())
+        dt = float(self.sim.state.dt)
         visc = float(self.sim.state.visc)
 
-        kmax_m = self.kmax
-        hk_m = self.high_k_fraction
-        pr_m = self.palinstrophy_over_enstrophy_kmax2
+        kmax = self.kmax
+        hk = self.high_k_fraction
+        pr = self.palinstrophy_over_enstrophy_kmax2
 
-        meta = (
-            f"N={N}   Re={Re:.4g}   visc={visc:.4g}\n"
-            f"it={it}   t={t:.6g}   dt={dt:.6g}\n"
-            f"kc=N/3={kc:.3g}   alpha*kc={alpha * kc:.3g}\n"
-            f"kmax={kmax_m if kmax_m is not None else 'N/A'}   "
-            f"high_k_fraction={hk_m if hk_m is not None else 'N/A'}   "
-            f"pal/Zkmax^2={pr_m if pr_m is not None else 'N/A'}\n"
-            f"saved: {_dt.datetime.now().strftime('%Y-%m-%d %H:%M')}"
+        kmax_s = f"{kmax:6.1f}" if kmax is not None else "N/A"
+        hk_s = f"{hk:.2e}" if hk is not None else "N/A"
+        pr_s = f"{pr:.2e}" if pr is not None else "N/A"
+
+        kc = N / 3.0
+        return (
+            f"N={N}  Re={Re:.3g}  K0={K0:.3g}\n"
+            f"t={t:.6f}  it={it}  dt={dt:.3e}  visc={visc:.3e}\n"
+            f"kc=N/3={kc:.2f}  kmax={kmax_s}  high_k_fraction={hk_s}  pal/(Z*kmax^2)={pr_s}\n"
+            f"{_dt.datetime.now().strftime('%Y-%m-%d %H:%M')}"
         )
 
-        # ---- plot ----
-        fig, ax = plt.subplots(figsize=(7, 5))
-        ax.semilogy(k_plot, Ek_norm, marker=".", linestyle="-")
-        ax.axvline(kc, linestyle="--")
-        ax.axvline(alpha * kc, linestyle=":")
+    def _save_omega_spectrum(self, omega: np.ndarray, filename: str) -> None:
+        """
+        Save 2D FFT power spectrum image for omega:
+          - spectrum = log10(|FFT2(omega-mean)|^2)
+          - plot uses *positive* (kx>0, kz>0) quadrant so we can do log-log axes
+          - metadata is drawn as a plain text annotation (black text on white box)
+        """
+        import numpy as _np
+        import matplotlib.pyplot as _plt
 
-        ax.set_xlabel("k (integer shell)")
-        ax.set_ylabel("E(k) / sum(E)  (omega power, radially binned)")
-        ax.set_title("Ω spectrum (radial)")
+        om = _np.asarray(omega, dtype=_np.float64)
+        NZ, NX = om.shape
 
+        a = om - float(om.mean())
+        W = _np.fft.fft2(a)
+        P = _np.abs(W) ** 2
+
+        kx = _np.fft.fftfreq(NX) * NX
+        kz = _np.fft.fftfreq(NZ) * NZ
+
+        # Positive quadrant only (exclude 0 so log scales are valid)
+        ix = _np.where(kx > 0)[0]
+        iz = _np.where(kz > 0)[0]
+        if ix.size == 0 or iz.size == 0:
+            return
+
+        kx_pos = kx[ix]
+        kz_pos = kz[iz]
+        P_pos = P[_np.ix_(iz, ix)]
+
+        eps = _np.finfo(_np.float64).tiny
+        Z = _np.log10(P_pos + eps)
+
+        fig, ax = _plt.subplots(figsize=(7.2, 6.4), dpi=150)
+        im = ax.imshow(
+            Z,
+            origin="lower",
+            aspect="auto",
+            extent=(float(kx_pos[0]), float(kx_pos[-1]), float(kz_pos[0]), float(kz_pos[-1])),
+        )
+
+        ax.set_xscale("log")
+        ax.set_yscale("log")
+        ax.set_xlabel("kx")
+        ax.set_ylabel("kz")
+        ax.set_title("ω 2D FFT power spectrum  (log10 |FFT|^2)")
+
+        cbar = fig.colorbar(im, ax=ax)
+        cbar.set_label("log10 power")
+
+        meta = self._spectrum_meta_text()
         ax.text(
-            0.01, 0.25, meta,
+            0.02,
+            0.98,
+            meta,
             transform=ax.transAxes,
-            ha="left", va="top",
+            ha="left",
+            va="top",
             fontsize=8,
-            family="monospace",
-            color="black",
-            bbox=dict(boxstyle="round,pad=0.3", alpha=0.05),
+            color="black",  # <- avoids “why is it blue?”
+            bbox=dict(boxstyle="round,pad=0.3", facecolor="white", alpha=0.85, edgecolor="none"),
         )
 
         fig.tight_layout()
-        fig.savefig(out_png, dpi=160)
-        plt.close(fig)
+        fig.savefig(filename)
+        _plt.close(fig)
 
 
     @staticmethod
@@ -861,7 +856,7 @@ class MainWindow(QMainWindow):
         self._dump_pgm_full(self._get_full_field("kinetic"), os.path.join(folder_path, "kinetic.pgm"))
         omega = self._get_full_field("omega")
         self._dump_pgm_full(omega, os.path.join(folder_path, "omega.pgm"))
-        self._save_omega_spectrum_figure(omega, os.path.join(folder_path, "omega_spectrum.png"))
+        self._save_omega_spectrum(omega, os.path.join(folder_path, "omega_spectrum.png"))
         print("[SAVE] Completed.")
 
     def on_save_clicked(self) -> None:
