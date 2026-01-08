@@ -5,8 +5,7 @@ import os
 import sys
 import time
 import datetime as _dt
-from typing import Optional
-
+from typing import Optional, Literal, cast
 from pathlib import Path
 from PySide6.QtCore import QSize, QTimer, Qt, QStandardPaths
 from PySide6.QtGui import QIcon, QImage, QPixmap, QFontDatabase, qRgb, QKeySequence, QShortcut
@@ -1239,20 +1238,28 @@ class MainWindow(QMainWindow):
 
 
 # ----------------------------------------------------------------------
+Backend = Literal["cpu", "gpu", "auto"]
 def main() -> None:
     args = sys.argv[1:]
     N = int(args[0]) if len(args) > 0 else 512
-    K0 = float(args[1]) if len(args) > 1 else 10.0
-    CFL = float(args[2]) if len(args) > 2 else 0.5
-    STEPS = int(args[3]) if len(args) > 3 else 50000
-    ITERATIONS = int(args[4]) if len(args) > 4 else 1E99
-    app = QApplication(sys.argv)
+    Re = float(args[1]) if len(args) > 1 else 10000
+    K0 = float(args[2]) if len(args) > 2 else 10.0
+    STEPS = int(args[3]) if len(args) > 3 else 101
+    CFL = float(args[4]) if len(args) > 4 else 0.75
 
+    backend_str = args[5].lower() if len(args) > 5 else "auto"
+    if backend_str not in ("cpu", "gpu", "auto"):
+        backend_str = "auto"
+    backend: Backend = cast(Backend, backend_str)
+
+    ITERATIONS = int(args[6]) if len(args) > 6 else 10**10
+
+    app = QApplication(sys.argv)
     icon_path = Path(__file__).with_name("palinstrophy.icns")
     icon = QIcon(str(icon_path))
     app.setWindowIcon(icon)
 
-    sim = DnsSimulator(n=N, k0=K0, cfl=CFL)
+    sim = DnsSimulator(n=N, re=Re, k0=K0, cfl=CFL, backend=backend)
     sim.step(1)
     window = MainWindow(sim, STEPS, ITERATIONS)
     screen = app.primaryScreen().availableGeometry()
