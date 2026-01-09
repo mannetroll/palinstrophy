@@ -1,4 +1,5 @@
-# Re_from_N_K0 in pure bash + awk (no python):
+#!/usr/bin/env bash
+
 # log10(Re) = a*log10(N) + b*K0 + c
 Re_from_N_K0 () {
   local N="$1"
@@ -11,7 +12,6 @@ Re_from_N_K0 () {
   }'
 }
 
-#!/usr/bin/env bash
 set -euo pipefail
 
 #
