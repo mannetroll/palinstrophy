@@ -995,9 +995,10 @@ class MainWindow(QMainWindow):
             CFL = self.sim.cfl
             STEPS = self.sim.get_iteration()
             VISC = self.sim.state.visc
-            PALIN = self.palinstrophy_over_enstrophy_kmax2
-            print("N, Re, K0, CFL, VISC, STEPS, PALIN")
-            print(f"{N}, {Re:.4e}, {K0}, {CFL}, {VISC:.4e}, {STEPS}, {PALIN:.4e}")
+            PALIN = 10000*self.palinstrophy_over_enstrophy_kmax2
+            SIG = self.sig
+            print("N, Re, K0, CFL, VISC, STEPS, PALIN, SIG")
+            print(f"{N}, {Re:.4e}, {K0}, {CFL}, {VISC:.4e}, {STEPS}, {int(PALIN)}, {int(SIG)}")
             folder = f"simulations/palinstrophy_{N}_{self.sci_no_plus(Re)}_{K0}_{CFL}_{STEPS}"
             # Default root = Desktop
             desktop = QStandardPaths.writableLocation(
