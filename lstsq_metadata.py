@@ -1,3 +1,8 @@
+# Kolmogorov
+# \mathrm{Re} \propto \left(\frac{k_{\max}}{k_0}\right)^{4/3}
+# \;\;\Rightarrow\;\;
+# \log(\mathrm{Re}) \approx \frac{4}{3}\log(N) - \frac{4}{3}\log(k_0) + \text{const}
+
 import numpy as np
 import matplotlib.pyplot as plt
 from mpl_toolkits.mplot3d import Axes3D  # noqa: F401
@@ -11,14 +16,15 @@ Re = data["Re"].astype(float)
 K0 = data["K0"].astype(float)
 
 # Moderate subset: Re < 1e7
-mask = Re < 1e7
+mask = Re < 1e6
 N = N[mask]
 Re = Re[mask]
 K0 = K0[mask]
 
-# Fit: log10(Re) = a*log10(N) + b*K0 + c  (least squares)
+# Fit all:
+# log10(Re) = a*log10(N) + b*log10(K0) + c  (least squares)
 x1 = np.log10(N)
-x2 = K0
+x2 = np.log10(K0)
 y = np.log10(Re)
 
 X = np.column_stack([x1, x2, np.ones_like(x1)])
@@ -29,7 +35,7 @@ yhat = X @ beta
 r2 = 1.0 - np.sum((y - yhat) ** 2) / np.sum((y - y.mean()) ** 2)
 
 print(f"Using {len(y)} points where Re < 1e7")
-print(f"log10(Re) ≈ {a:.6f}*log10(N) + {b:.6f}*K0 + {c:.6f}")
+print(f"log10(Re) ≈ {a:.6f}*log10(N) + {b:.6f}*log10(K0) + {c:.6f}")
 print(f"a = {a:.6f}")
 print(f"b = {b:.6f}")
 print(f"c = {c:.6f}")
@@ -50,8 +56,8 @@ Yg = a * X1g + b * X2g + c
 ax.plot_surface(X1g, X2g, Yg, alpha=0.35)
 
 ax.set_xlabel("log10(N)")
-ax.set_ylabel("K0")
+ax.set_ylabel("log10(K0)")
 ax.set_zlabel("log10(Re)")
-ax.set_title(f"log10(Re) = {a:.6f}*log10(N) + {b:.6f}**K0 + {c:.6f}  (Re < 1e7)")
+ax.set_title(f"log10(Re) = {a:.6f}*log10(N) + {b:.6f}*log10(K0) + {c:.6f}  (Re < 1e7)")
 
 plt.show()

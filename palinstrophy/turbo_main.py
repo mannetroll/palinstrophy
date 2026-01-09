@@ -1262,10 +1262,10 @@ class MainWindow(QMainWindow):
 # \log(\mathrm{Re}) \approx \frac{4}{3}\log(N) - \frac{4}{3}\log(k_0) + \text{const}
 #
 def Re_from_N_K0(N, K0):
-    a =  1.469526
-    b = -0.022493
-    c = 0.624962
-    log10Re = a * np.log10(N) + b * K0 + c
+    a = 0.605617
+    b = 0.234561
+    c = 2.233384
+    log10Re = a * np.log10(N) + b * np.log10(K0) + c
     return 10.0 ** log10Re
 
 # ----------------------------------------------------------------------
