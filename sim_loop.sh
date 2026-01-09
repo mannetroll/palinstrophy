@@ -6,7 +6,7 @@ Re_from_N_K0 () {
   local N="$1"
   local K0="$2"
   awk -v N="$N" -v K0="$K0" 'BEGIN{
-    a=0.984405; b=-0.230766; c=1.554193;
+    a=1.066240; b=-0.083911; c=1.286396;
     log10Re = a*(log(N)/log(10.0)) + b*(log(K0)/log(10.0)) + c;
     Re = 10.0^log10Re;
     printf "%.6e\n", Re;
