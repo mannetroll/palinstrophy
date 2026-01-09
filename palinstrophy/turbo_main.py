@@ -1166,8 +1166,9 @@ class MainWindow(QMainWindow):
     def adapt_visc(self) -> None:
         # target in the "raw" metric (not *10000)
         target = 0.005
-        hi = target * 1.01
-        lo = target * 0.99
+        epsilon = 0.001
+        hi = target * (1.0 + epsilon)
+        lo = target * (1.0 - epsilon)
 
         p = self.palinstrophy_over_enstrophy_kmax2
         if p is None:
@@ -1175,13 +1176,14 @@ class MainWindow(QMainWindow):
 
         nu = float(self.sim.state.visc)
 
-        epsilon = 0.0001
         if p > hi:
             # too much small-scale crowding: add dissipation
             nu *= 1.0 + epsilon
+            #print(f"Adjusting viscosity: p={p:.5f}, nu={nu:.5f}")
         elif p < lo:
             # safe: try less dissipation (higher Re)
             nu *= 1.0 - epsilon
+            #print(f"Adjusting viscosity: p={p:.5f}, nu={nu:.5f}")
 
         # Update solver viscosity
         self.sim.state.visc = float(nu)
@@ -1275,9 +1277,9 @@ class MainWindow(QMainWindow):
 # \log(\mathrm{Re}) \approx \frac{4}{3}\log(N) - \frac{4}{3}\log(k_0) + \text{const}
 #
 def Re_from_N_K0(N, K0):
-    a = 4.0/3
+    a = 4.0/3.0
     b = -a
-    c = 2.439823
+    c = 2.0
     log10Re = a * np.log10(N) + b * np.log10(K0) + c
     return 10.0 ** log10Re
 
