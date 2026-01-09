@@ -1287,18 +1287,29 @@ def Re_from_N_K0(N, K0):
 Backend = Literal["cpu", "gpu", "auto"]
 def main() -> None:
     args = sys.argv[1:]
-    N = int(args[0]) if len(args) > 0 else 512
-    K0 = float(args[1]) if len(args) > 1 else 15
-    Re = float(args[2]) if len(args) > 2 else Re_from_N_K0(N, K0)
-    STEPS = args[3] if len(args) > 3 else "50000"
-    CFL = float(args[4]) if len(args) > 4 else 0.3
 
+    # Decide backend early so we can choose a sensible default N
     backend_str = args[5].lower() if len(args) > 5 else "auto"
     if backend_str not in ("cpu", "gpu", "auto"):
         backend_str = "auto"
     backend: Backend = cast(Backend, backend_str)
 
-    UPDATE = args[6]  if len(args) > 6 else "5"
+    # Default N depends on effective backend:
+    if backend == "cpu":
+        default_N = 512
+    elif backend == "gpu":
+        default_N = 2048
+    else:
+        import importlib.util
+        default_N = 2048 if importlib.util.find_spec("cupy") is not None else 512
+
+    N = int(args[0]) if len(args) > 0 else default_N
+    K0 = float(args[1]) if len(args) > 1 else 15
+    Re = float(args[2]) if len(args) > 2 else Re_from_N_K0(N, K0)
+    STEPS = args[3] if len(args) > 3 else "50000"
+    CFL = float(args[4]) if len(args) > 4 else 0.3
+
+    UPDATE = args[6] if len(args) > 6 else "5"
     ITERATIONS = int(args[7]) if len(args) > 7 else 10**9
 
     app = QApplication(sys.argv)
