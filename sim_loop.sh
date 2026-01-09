@@ -6,7 +6,7 @@ Re_from_N_K0 () {
   local N="$1"
   local K0="$2"
   awk -v N="$N" -v K0="$K0" 'BEGIN{
-    a=0.725220; b=0.082364; c=2.034392;
+    a=0.984405; b=-0.230766; c=1.554193;
     log10Re = a*(log(N)/log(10.0)) + b*(log(K0)/log(10.0)) + c;
     Re = 10.0^log10Re;
     printf "%.6e\n", Re;
@@ -20,15 +20,16 @@ rm -f output_N*
 CSV="sim_metadata.csv"
 echo "N, K0, Re, CFL, VISC, STEPS, PALIN, SIG, TIME, MINUTES, FPS" > "$CSV"
 
-for N in 256 384 512 768 1024 1536; do
-  for K in 10 20; do
+for N in 256 384 512 768 1024 1536 2048 3072 4096 6144 8192; do
+  # shellcheck disable=SC2043
+  for K in 15; do
     LOG="output_N${N}_K${K}.log"
 
     RE="$(Re_from_N_K0 "$N" "$K")"
 
     echo "Running N=${N} K=${K} RE=${RE} ..."
     # N K RE STEPS CFL backend UPDATE ITERATIONS
-    PYTHONUNBUFFERED=1 uv run -- turbulence "$N" "$K" "$RE" 3E5 0.1 auto 10 50000 2>&1 \
+    PYTHONUNBUFFERED=1 uv run -- turbulence "$N" "$K" "$RE" 3E5 0.1 auto 10 100000 2>&1 \
       | stdbuf -oL -eL tee -a "$LOG" \
       | awk -v csv="$CSV" '
           $0=="N, K0, Re, CFL, VISC, STEPS, PALIN, SIG, TIME, MINUTES, FPS" { grab=1; next }
