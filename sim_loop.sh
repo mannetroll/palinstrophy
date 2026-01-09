@@ -6,7 +6,7 @@ set -euo pipefail
 #
 
 CSV="sim_metadata.csv"
-[[ -s "$CSV" ]] || echo "N, Re, K0, CFL, VISC, STEPS" > "$CSV"
+[[ -s "$CSV" ]] || echo "N, Re, K0, CFL, VISC, STEPS, PALIN" > "$CSV"
 
 for N in 256 512 1024 2048 4096 8192; do
   for K in 5 10 15 20; do
@@ -16,7 +16,7 @@ for N in 256 512 1024 2048 4096 8192; do
     PYTHONUNBUFFERED=1 uv run -- turbulence "$N" 1E15 "$K" 1E5 0.2 auto 10 50000 2>&1 \
       | stdbuf -oL -eL tee -a "$LOG" \
       | awk -v csv="$CSV" '
-          $0=="N, Re, K0, CFL, VISC, STEPS" { grab=1; next }
+          $0=="N, Re, K0, CFL, VISC, STEPS, PALIN" { grab=1; next }
           grab && !done { print >> csv; fflush(csv); done=1; grab=0 }
         '
   done
