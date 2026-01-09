@@ -1170,18 +1170,23 @@ class MainWindow(QMainWindow):
 
         if p > hi:
             # too much small-scale crowding: add dissipation
-            nu *= 1.02
+            nu *= 1.05
         elif p < lo:
             # safe: try less dissipation (higher Re)
-            nu *= 0.99
+            nu *= 0.95
 
         # Update solver viscosity
         self.sim.state.visc = float(nu)
 
         # Update "effective Re" everywhere (requested)
         Re_eff = 1.0 / float(nu)
+
+        if Re_eff > 1e12:
+            Re_eff = 1e12
+
         self.sim.re = float(Re_eff)
         self.sim.state.Re = float(self.sim.re)
+        self.sim.state.visc = 1.0 / float(Re_eff)
         # self.sim.state.visc already set above
 
     # ------------------------------------------------------------------

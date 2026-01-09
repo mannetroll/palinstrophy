@@ -15,7 +15,7 @@ N = data["N"].astype(float)
 Re = data["Re"].astype(float)
 K0 = data["K0"].astype(float)
 
-# Moderate subset: Re < 1e7
+# Moderate subset: Re < 1e6
 mask = Re < 1e6
 N = N[mask]
 Re = Re[mask]
