@@ -20,8 +20,8 @@ rm -f output_N*
 CSV="sim_metadata.csv"
 echo "N, K0, Re, CFL, VISC, STEPS, PALIN, SIG, TIME, MINUTES, FPS" > "$CSV"
 
-for K in 2 5 10 15 20 30; do
-  for N in 256 384 512 768 1024 1536; do
+for N in 256 384 512 768 1024 1536; do
+  for K in 2 5 10 15 20 30; do
     LOG="output_N${N}_K${K}.log"
 
     RE="$(Re_from_N_K0 "$N" "$K")"
