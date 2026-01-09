@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
 
-# log10(Re) = a*log10(N) + b*K0 + c
+# log10(Re) = a*log10(N) + b*log10(K0) + c
 Re_from_N_K0 () {
   local N="$1"
   local K0="$2"
   awk -v N="$N" -v K0="$K0" 'BEGIN{
-    a=1.469526; b=-0.022493; c=0.624962;
-    log10Re = a*(log(N)/log(10.0)) + b*K0 + c;
+    a=0.605617; b=0.234561; c=2.233384;
+    log10Re = a*(log(N)/log(10.0)) + b*(log(K0)/log(10.0)) + c;
     Re = 10.0^log10Re;
     printf "%.6e\n", Re;
   }'
