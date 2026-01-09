@@ -1255,6 +1255,12 @@ class MainWindow(QMainWindow):
         super().keyPressEvent(event)
 
 
+#
+# Kolmogorov
+# \mathrm{Re} \propto \left(\frac{k_{\max}}{k_0}\right)^{4/3}
+# \;\;\Rightarrow\;\;
+# \log(\mathrm{Re}) \approx \frac{4}{3}\log(N) - \frac{4}{3}\log(k_0) + \text{const}
+#
 def Re_from_N_K0(N, K0):
     a =  1.469526
     b = -0.022493

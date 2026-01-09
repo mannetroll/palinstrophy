@@ -22,7 +22,7 @@ CSV="sim_metadata.csv"
 echo "N, K0, Re, CFL, VISC, STEPS, PALIN, SIG" > "$CSV"
 
 for N in 256 384 512 768 1024 1536 2048 3072 4096 6144 8192; do
-  for K in 5 10 15 20; do
+  for K in 2 5 10 15 20 30; do
     LOG="output_N${N}_K${K}.log"
 
     RE="$(Re_from_N_K0 "$N" "$K")"
