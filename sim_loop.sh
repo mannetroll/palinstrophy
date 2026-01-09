@@ -19,7 +19,7 @@ set -euo pipefail
 #
 rm -f output_N*
 CSV="sim_metadata.csv"
-[[ -s "$CSV" ]] || echo "N, K0, Re, CFL, VISC, STEPS, PALIN, SIG, TIME, MINUTES, FPS" > "$CSV"
+echo "N, K0, Re, CFL, VISC, STEPS, PALIN, SIG, TIME, MINUTES, FPS" > "$CSV"
 
 for K in 2 5 10 15 20 30; do
   for N in 256 384 512 768 1024 1536 2048 3072 4096; do
