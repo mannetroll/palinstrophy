@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+set -euo pipefail
 
 # log10(Re) = a*log10(N) + b*log10(K0) + c
 Re_from_N_K0 () {
@@ -11,8 +12,6 @@ Re_from_N_K0 () {
     printf "%.6e\n", Re;
   }'
 }
-
-set -euo pipefail
 
 #
 # nohup stdbuf -oL bash sim_loop.sh > sim_loop.txt 2>&1 &
