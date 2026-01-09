@@ -807,10 +807,10 @@ class MainWindow(QMainWindow):
         # --- Build the default folder name ---
         N = self.sim.N
         Re = self.sim.re
-        K0 = self.sim.k0
+        K0 = int(self.sim.k0)
         CFL = self.sim.cfl
         STEPS = self.sim.get_iteration()
-        suffix = f"{N}_{self.sci_no_plus(Re)}_{K0}_{CFL}_{STEPS}"
+        suffix = f"{N}_{K0}_{self.sci_no_plus(Re)}_{CFL}_{STEPS}"
         folder = f"palinstrophy_{suffix}"
 
         # Default root = Desktop
@@ -989,15 +989,15 @@ class MainWindow(QMainWindow):
             # --- Build the default folder name ---
             N = self.sim.N
             Re = self.sim.state.Re
-            K0 = self.sim.k0
+            K0 = int(self.sim.k0)
             CFL = self.sim.cfl
             STEPS = self.sim.get_iteration()
             VISC = self.sim.state.visc
-            PALIN = 10000*self.palinstrophy_over_enstrophy_kmax2
-            SIG = self.sig
-            print("N, Re, K0, CFL, VISC, STEPS, PALIN, SIG")
-            print(f"{N}, {Re:.4e}, {K0}, {CFL}, {VISC:.4e}, {STEPS}, {int(PALIN)}, {int(SIG)}")
-            suffix = f"{N}_{self.sci_no_plus(Re)}_{K0}_{CFL}_{STEPS}"
+            PALIN = int(10000*self.palinstrophy_over_enstrophy_kmax2)
+            SIG = int(self.sig)
+            print("N, K0, Re, CFL, VISC, STEPS, PALIN, SIG")
+            print(f"{N}, {K0}, {Re:.4e}, {CFL}, {VISC:.4e}, {STEPS}, {PALIN}, {SIG}")
+            suffix = f"{N}_{K0}_{self.sci_no_plus(Re)}_{CFL}_{STEPS}"
             folder = f"simulations/palinstrophy_{suffix}"
             # Default root = Desktop
             desktop = QStandardPaths.writableLocation(
