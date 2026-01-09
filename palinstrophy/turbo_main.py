@@ -1270,18 +1270,20 @@ class MainWindow(QMainWindow):
         super().keyPressEvent(event)
 
 
+def Re_from_N_K0(N, K0):
+    a =  1.469526
+    b = -0.022493
+    c = 0.624962
+    log10Re = a * np.log10(N) + b * K0 + c
+    return 10.0 ** log10Re
+
 # ----------------------------------------------------------------------
 Backend = Literal["cpu", "gpu", "auto"]
 def main() -> None:
     args = sys.argv[1:]
     N = int(args[0]) if len(args) > 0 else 512
-
-    kc = float(N) / 3.0
-    nu_min = 0.2 / (kc * kc)
-    Re_eff = 1.0 / float(nu_min)
-    Re = float(args[1]) if len(args) > 1 else Re_eff
-
-    K0 = float(args[2]) if len(args) > 2 else 15
+    K0 = float(args[1]) if len(args) > 1 else 15
+    Re = float(args[2]) if len(args) > 2 else Re_from_N_K0(N, K0)
     STEPS = args[3] if len(args) > 3 else "50000"
     CFL = float(args[4]) if len(args) > 4 else 0.3
 
