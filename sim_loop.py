@@ -30,6 +30,9 @@ r2 = 1.0 - np.sum((y - yhat) ** 2) / np.sum((y - y.mean()) ** 2)
 
 print(f"Using {len(y)} points where Re < 1e7")
 print(f"log10(Re) ≈ {a:.6f}*log10(N) + {b:.6f}*K0 + {c:.6f}")
+print(f"a = {a:.6f}")
+print(f"b = {b:.6f}")
+print(f"c = {c:.6f}")
 print(f"R^2 = {r2:.6f}")
 
 # ---- 3D plot: scatter + fitted plane ----

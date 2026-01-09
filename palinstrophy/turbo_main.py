@@ -894,14 +894,12 @@ class MainWindow(QMainWindow):
 
     def on_n_changed(self, value: str) -> None:
         N = int(value)
+        K0 = float(self.sim.state.K0)
         # Estimate Re
-        kc = float(N) / 3.0
-        nu_min = 0.2 / (kc * kc)
-        Re_eff = 1.0 / float(nu_min)
+        Re_eff = Re_from_N_K0(N,K0)
         self.sim.re = Re_eff
         self.sim.state.Re = Re_eff
         self.sim.set_N(N)
-
 
         # 1) Update the image first
         self._update_image(self.sim.get_frame_pixels())
@@ -1172,23 +1170,10 @@ class MainWindow(QMainWindow):
 
         if p > hi:
             # too much small-scale crowding: add dissipation
-            nu *= 1.01
+            nu *= 1.02
         elif p < lo:
             # safe: try less dissipation (higher Re)
-            nu *= 0.98
-
-
-        # also enforce your resolution floor nu_min(N)
-        """
-        N = int(self.sim.N)
-        kc = float(N) / 3.0
-        nu_min = 0.2 / (kc * kc)
-
-        if nu < nu_min:
-            nu = nu_min
-            Re_eff = 1.0 / float(nu)
-            print(f"nu_min: {nu_min:.2e}, Re_eff: {Re_eff:,.0f} for N={N}")
-        """
+            nu *= 0.99
 
         # Update solver viscosity
         self.sim.state.visc = float(nu)
