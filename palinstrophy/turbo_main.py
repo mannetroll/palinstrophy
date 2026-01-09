@@ -433,7 +433,7 @@ class MainWindow(QMainWindow):
         # CFL selector
         self.cfl_combo = QComboBox()
         self.cfl_combo.setToolTip("L: Controlling Δt (CFL)")
-        self.cfl_combo.addItems(["0.05", "0.1", "0.2", "0.3", "0.4", "0.5", "0.75", "0.85", "0.95"])
+        self.cfl_combo.addItems(["0.05", "0.1", "0.15", "0.2", "0.25", "0.3", "0.4", "0.5", "0.75", "0.85", "0.95"])
         self.cfl_combo.setCurrentText(str(self.sim.cfl))
 
         # Steps selector
