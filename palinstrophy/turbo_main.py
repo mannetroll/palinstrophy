@@ -995,8 +995,14 @@ class MainWindow(QMainWindow):
             VISC = self.sim.state.visc
             PALIN = int(10000*self.palinstrophy_over_enstrophy_kmax2)
             SIG = int(self.sig)
-            print("N, K0, Re, CFL, VISC, STEPS, PALIN, SIG")
-            print(f"{N}, {K0}, {Re:.4e}, {CFL}, {VISC:.4e}, {STEPS}, {PALIN}, {SIG}")
+            TIME = self.sim.state.t
+            # ---- FPS from simulation start ----
+            elapsed = time.time() - self._sim_start_time
+            steps = self.sim.get_iteration() - self._sim_start_iter
+            MINUTES = elapsed / 60.0
+            FPS = steps / elapsed
+            print("N, K0, Re, CFL, VISC, STEPS, PALIN, SIG, TIME, MINUTES, FPS")
+            print(f"{N}, {K0}, {Re:.4e}, {CFL}, {VISC:.4e}, {STEPS}, {PALIN}, {SIG}, {TIME:.2e}, {MINUTES:.2f}, {FPS:.1f}")
             suffix = f"{N}_{K0}_{self.sci_no_plus(Re)}_{CFL}_{STEPS}"
             folder = f"simulations/palinstrophy_{suffix}"
             # Default root = Desktop
