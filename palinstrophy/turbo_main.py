@@ -810,8 +810,8 @@ class MainWindow(QMainWindow):
         K0 = self.sim.k0
         CFL = self.sim.cfl
         STEPS = self.sim.get_iteration()
-
-        folder = f"palinstrophy_{N}_{self.sci_no_plus(Re)}_{K0}_{CFL}_{STEPS}"
+        suffix = f"{N}_{self.sci_no_plus(Re)}_{K0}_{CFL}_{STEPS}"
+        folder = f"palinstrophy_{suffix}"
 
         # Default root = Desktop
         desktop = QStandardPaths.writableLocation(
@@ -836,9 +836,9 @@ class MainWindow(QMainWindow):
         else:
             return
 
-        self.dump_to_folder(base_dir, folder)
+        self.dump_to_folder(base_dir, folder, suffix)
 
-    def dump_to_folder(self, base_dir: str, folder: str):
+    def dump_to_folder(self, base_dir: str, folder: str, suffix: str):
         # Build final path
         folder_path = os.path.join(base_dir, folder)
         os.makedirs(folder_path, exist_ok=True)
@@ -849,7 +849,7 @@ class MainWindow(QMainWindow):
         self._dump_pgm_full(self._get_full_field("kinetic"), os.path.join(folder_path, "kinetic.pgm"))
         omega = self._get_full_field("omega")
         self._dump_pgm_full(omega, os.path.join(folder_path, "omega.pgm"))
-        self._save_omega_radial_spectrum(omega, os.path.join(folder_path, "omega_spectrum.png"))
+        self._save_omega_radial_spectrum(omega, os.path.join(folder_path, f"omega_spectrum_{suffix}.png"))
         print("[SAVE] Completed.")
 
     def on_save_clicked(self) -> None:
@@ -999,12 +999,13 @@ class MainWindow(QMainWindow):
             SIG = self.sig
             print("N, Re, K0, CFL, VISC, STEPS, PALIN, SIG")
             print(f"{N}, {Re:.4e}, {K0}, {CFL}, {VISC:.4e}, {STEPS}, {int(PALIN)}, {int(SIG)}")
-            folder = f"simulations/palinstrophy_{N}_{self.sci_no_plus(Re)}_{K0}_{CFL}_{STEPS}"
+            suffix = f"{N}_{self.sci_no_plus(Re)}_{K0}_{CFL}_{STEPS}"
+            folder = f"simulations/palinstrophy_{suffix}"
             # Default root = Desktop
             desktop = QStandardPaths.writableLocation(
                 QStandardPaths.StandardLocation.DesktopLocation
             )
-            self.dump_to_folder(desktop, folder)
+            self.dump_to_folder(desktop, folder, suffix)
             QApplication.quit()
 
     # ------------------------------------------------------------------

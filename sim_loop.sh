@@ -4,7 +4,7 @@ set -euo pipefail
 #
 # nohup stdbuf -oL bash sim_loop.sh > sim_loop.txt 2>&1 &
 #
-rm output_N*
+rm -f output_N*
 CSV="sim_metadata.csv"
 [[ -s "$CSV" ]] || echo "N, Re, K0, CFL, VISC, STEPS, PALIN, SIG" > "$CSV"
 
