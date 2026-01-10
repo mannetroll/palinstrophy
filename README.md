@@ -64,8 +64,8 @@ To keep the GUI responsive for large grids, the displayed image is automatically
 From the project root:
 
     $ uv sync
-    $ uv run -- turbulence
-    $ uv run -- sim
+    $ uv run turbulence
+    $ uv run sim
 
 ## The DNS with SciPy (1024 x 1024)
 
@@ -104,8 +104,8 @@ On a CUDA machine (e.g. RTX 3090):
 2. Install CuPy into the uv environment:
 
        $ uv sync --extra cuda
-       $ uv run -- turbulence
-       $ uv run -- sim
+       $ uv run turbulence
+       $ uv run sim
 
 3. Verify that CuPy sees the GPU:
 
@@ -171,13 +171,13 @@ For a terminal-only summary:
 ```
 $ curl -LsSf https://astral.sh/uv/install.sh | sh
 $ uv cache clean mannetroll-palinstrophy
-$ uv run --python 3.13 --with mannetroll-palinstrophy==0.1.0 -- turbulence
+$ uv run --python 3.13 --with mannetroll-palinstrophy==0.1.0 turbulence
 ```
 
 ## one-liner GPU/CuPy
 
 ```
-$ uv run --python 3.13 --with mannetroll-palinstrophy[cuda]==0.1.0 -- turbulence
+$ uv run --python 3.13 --with mannetroll-palinstrophy[cuda]==0.1.0 turbulence
 ```
 
 ## License
