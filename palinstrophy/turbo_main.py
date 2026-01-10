@@ -799,7 +799,7 @@ class MainWindow(QMainWindow):
         FPS = steps / elapsed
         meta = (
             f"{_dt.datetime.now().strftime("%Y-%m-%d %H:%M")}\n"
-            f"N={min(self.sim.N)}\n"
+            f"N={self.sim.N}\n"
             f"K0={self.sim.k0:g}\n"
             f"Re={self.sim.re:g}\n"
             f"visc={float(self.sim.state.visc):.3g}\n"
