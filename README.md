@@ -188,6 +188,20 @@ A **vertical line** marks the scale K0, and a **dashed reference slope** k⁻³ 
 
 ![spectrum](https://raw.githubusercontent.com/mannetroll/palinstrophy/v0.1.0/spectrum.png)
 
+## FPS Comparison Plot (DNS FPS vs Grid Size and Code)
+
+### Code bases compared
+
+- **CUDA C++** (`.cu`) — RTX 3090  
+- **CuPy (Python) + custom C++ kernels** (`.py` + C++ kernels) — RTX 3090  
+- **CuPy (Python)** (`.py`) — RTX 3090  
+- **FORTRAN** (`.f77`) — Apple M1 *(OpenMP, 4 threads)*  
+- **NumPy (Python)** (`.py`) — Apple M1 *(single thread)*  
+- **SciPy (Python)** (`.py`) — Apple M1 *(4 workers)*  
+
+![compare](https://raw.githubusercontent.com/mannetroll/palinstrophy/v0.1.0/compare.png)
+
+
 ## License
 
 Copyright © 2026 mannetroll
