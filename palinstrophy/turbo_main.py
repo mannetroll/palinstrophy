@@ -779,7 +779,7 @@ class MainWindow(QMainWindow):
         # In the 2D forward enstrophy cascade, the energy spectrum scales as E(k) ~ k^-3
         # which implies an omega spectrum |ω̂|^2 ~ k^2 E(k) ~ k^-1.
         x1 = float(k0_norm)
-        x2 = 0.5
+        x2 = 0.7
         if x1 > 0.0 and x2 > 0.0 and x2 != x1 and np.any(good):
             x_good = r_centers[good]
             y_good = pmean[good]
