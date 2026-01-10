@@ -123,7 +123,7 @@ Or let the backend auto-detect:
 
 ## The DNS with CuPy (8192 x 8192) Dedicated GPU memory 18/24 GB
 
-![CuPy](https://raw.githubusercontent.com/mannetroll/palinstrophy/main/N8192.png)
+![CuPy](https://raw.githubusercontent.com/mannetroll/palinstrophy/v0.1.0/N8192.png)
 
 
 ## Profiling
