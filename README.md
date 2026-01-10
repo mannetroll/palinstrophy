@@ -69,8 +69,7 @@ From the project root:
 
 ## The DNS with SciPy (1024 x 1024)
 
-![SciPy](https://raw.githubusercontent.com/mannetroll/palinstrophy/main/N1024.png)
-
+![SciPy](https://raw.githubusercontent.com/mannetroll/palinstrophy/v0.1.0/N1024.png)
 
 ### Full CLI
 
