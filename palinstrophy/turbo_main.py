@@ -499,17 +499,17 @@ class MainWindow(QMainWindow):
         # window setup
         import importlib.util
 
-        title_backend = "(SciPy)"
+        self.title_backend = "(SciPy)"
         if importlib.util.find_spec("cupy") is not None:
             import cupy as cp
             try:
                 props = cp.cuda.runtime.getDeviceProperties(0)
                 gpu_name = props["name"].decode(errors="replace")
-                title_backend = f"(CuPy) {gpu_name}"
+                self.title_backend = f"(CuPy) {gpu_name}"
             except (RuntimeError, OSError, ValueError, IndexError):
                 pass
 
-        self.setWindowTitle(f"2D Turbulence {title_backend} © Mannetroll")
+        self.setWindowTitle(f"2D Turbulence {self.title_backend} © Mannetroll")
         disp_w, disp_h = self._display_size_px()
         self.resize(disp_w + 40, disp_h + 120)
 
@@ -722,8 +722,6 @@ class MainWindow(QMainWindow):
             return
 
         NZ, NX = a.shape
-        if NZ < 2 or NX < 2:
-            return
 
         # Remove mean (DC)
         a = a - float(a.mean())
@@ -771,8 +769,8 @@ class MainWindow(QMainWindow):
         ax = fig.add_subplot(1, 1, 1)
         ax.loglog(r_centers[good], pmean[good])
         ax.set_ylim(bottom=1)
-        ax.set_title("Omega image: radially averaged FFT power spectrum (approx)")
-        ax.set_xlabel("normalized radius  k / k_Nyquist  (from image)")
+        ax.set_title("Omega: radially averaged FFT power spectrum")
+        ax.set_xlabel("normalized radius  k / k_Nyquist")
         ax.set_ylabel("radially averaged power")
         k0_norm = (2.0 * float(self.sim.k0)) / float(self.sim.N)
         ax.axvline(k0_norm)
@@ -790,23 +788,36 @@ class MainWindow(QMainWindow):
             slope = -3.0
             y2 = y1 * (x2 / x1) ** slope
             ax.loglog([x1, x2], [y1, y2], "--", linewidth=2)
-            ax.text(x2, y2, "k^{-3}", fontsize=11, ha="left", va="center", color="black")
+            ax.text(x2, y2*2, r"$k^{-3}$", fontsize=11, ha="left", va="center", color="black")
 
         # Metadata annotation (force black so it won't be blue)
         # Keep it short + useful
+        # ---- FPS from simulation start ----
+        elapsed = time.time() - self._sim_start_time
+        steps = self.sim.get_iteration() - self._sim_start_iter
+        minutes = elapsed / 60.0
+        FPS = steps / elapsed
         meta = (
-            f"N={min(NX, NZ)}  Re={self.sim.re:g}  visc={float(self.sim.state.visc):.3g}\n"
-            f"t={float(self.sim.get_time()):.6g}  it={int(self.sim.get_iteration())}\n"
+            f"{self.title_backend}\n"
+            f"N={min(NX, NZ)}\n"
             f"K0={self.sim.k0:g}\n"
-            f"pal/Zkmax^2={self.palinstrophy_over_enstrophy_kmax2:.2e}"
+            f"Re={self.sim.re:g}\n"
+            f"visc={float(self.sim.state.visc):.3g}\n"
+            f"T={float(self.sim.get_time()):.6g}\n"
+            f"IT={int(self.sim.get_iteration())}\n"
+            f"σ={int(self.sig)}\n"
+            f"pal/Zkmax²={self.palinstrophy_over_enstrophy_kmax2:.2e}\n"
+            f"minutes={minutes:.2f}\n"
+            f"FPS={FPS:.1f}"
         )
         ax.text(
             0.02, 0.02, meta,
             transform=ax.transAxes,
             ha="left", va="bottom",
-            fontsize=12,
+            fontsize=11,
+            linespacing=1.5,
             color="black",
-            bbox=dict(boxstyle="round,pad=0.25", facecolor="white", edgecolor="black", alpha=0.85),
+            bbox=dict(boxstyle="round,pad=0.25", facecolor="white", edgecolor="gray", alpha=0.85),
         )
 
         fig.tight_layout()

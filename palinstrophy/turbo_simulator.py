@@ -28,12 +28,11 @@ The 3/2 de-aliasing, Crank–Nicolson update, and spectral vorticity
 formulas follow the CUDA kernels line-by-line.
 """
 from contextlib import nullcontext
-import time
+from dataclasses import dataclass
 import datetime as _dt
 import math
 import sys
-import random
-from dataclasses import dataclass
+import time
 from typing import Literal
 
 import numpy as _np
