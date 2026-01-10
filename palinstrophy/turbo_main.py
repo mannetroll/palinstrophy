@@ -776,6 +776,21 @@ class MainWindow(QMainWindow):
         k0_norm = (2.0 * float(self.sim.k0)) / float(self.sim.N)
         ax.axvline(k0_norm)
 
+        # Reference decay line from K0 to normalized radius = 0.1
+        # In the 2D forward enstrophy cascade, the energy spectrum scales as E(k) ~ k^-3
+        # which implies an omega spectrum |ω̂|^2 ~ k^2 E(k) ~ k^-1.
+        x1 = float(k0_norm)
+        x2 = 0.5
+        if x1 > 0.0 and x2 > 0.0 and x2 != x1 and np.any(good):
+            x_good = r_centers[good]
+            y_good = pmean[good]
+            i0 = int(np.argmin(np.abs(x_good - x1)))
+            y1 = float(y_good[i0]) if float(y_good[i0]) > 0.0 else 1.0
+            slope = -1.0
+            y2 = y1 * (x2 / x1) ** slope
+            ax.loglog([x1, x2], [y1, y2], "--", linewidth=2)
+            ax.text(x2, y2, "k^{-1}", fontsize=11, ha="left", va="center", color="black")
+
         # Metadata annotation (force black so it won't be blue)
         # Keep it short + useful
         meta = (
