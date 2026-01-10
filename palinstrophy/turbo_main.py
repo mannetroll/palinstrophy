@@ -824,7 +824,6 @@ class MainWindow(QMainWindow):
         fig.savefig(out_png)
         plt.close(fig)
 
-
     @staticmethod
     def sci_no_plus(x, decimals=0):
         x = float(x)
