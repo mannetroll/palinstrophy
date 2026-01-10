@@ -816,10 +816,9 @@ class MainWindow(QMainWindow):
             0.02, 0.02, meta,
             transform=ax.transAxes,
             ha="left", va="bottom",
-            fontsize=11,
+            fontsize=10,
             linespacing=1.5,
             color="black",
-            bbox=dict(boxstyle="round,pad=0.25", facecolor="white", edgecolor="gray", alpha=0.85),
         )
 
         fig.tight_layout()
