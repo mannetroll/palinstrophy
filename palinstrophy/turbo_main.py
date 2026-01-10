@@ -1325,7 +1325,7 @@ def main() -> None:
     STEPS = args[3] if len(args) > 3 else "50000"
     CFL = float(args[4]) if len(args) > 4 else 0.3
 
-    UPDATE = args[6] if len(args) > 6 else "5"
+    UPDATE = args[6] if len(args) > 6 else "20"
     ITERATIONS = int(args[7]) if len(args) > 7 else 10**9
 
     app = QApplication(sys.argv)
