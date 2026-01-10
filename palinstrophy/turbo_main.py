@@ -29,7 +29,7 @@ import numpy as np
 from palinstrophy import turbo_simulator as dns_all
 from palinstrophy.turbo_wrapper import DnsSimulator
 
-MAX_REYNOLDS_NUMBER = 1e15
+MAX_REYNOLDS_NUMBER = 1e12
 FUSION = "Fusion"
 
 # Simple helper: build a 256x3 uint8 LUT from color stops in 0..1
@@ -565,6 +565,7 @@ class MainWindow(QMainWindow):
         row1.addWidget(self.steps_combo)
         row1.addSpacing(5)
         row1.addWidget(self.auto_reset_checkbox)
+        row1.addStretch(1)
         main.addLayout(row1)
 
         self.setCentralWidget(central)
