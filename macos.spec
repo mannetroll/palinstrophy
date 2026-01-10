@@ -3,7 +3,7 @@
 #   rm -rf build dist
 #   uv pip install pyinstaller
 #   uv run pyinstaller macos.spec
-#   ./dist/cupyturbo.app/Contents/MacOS/palinstrophy
+#   ./dist/palinstrophy.app/Contents/MacOS/palinstrophy
 #   open -n ./dist/palinstrophy.app
 #
 
@@ -21,7 +21,7 @@ exe = EXE(
     pyz,
     a.scripts,
     exclude_binaries=True,
-    name="scipyturbo",
+    name="palinstrophy",
     console=False,
 )
 
