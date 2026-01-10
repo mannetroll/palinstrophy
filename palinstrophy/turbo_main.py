@@ -786,10 +786,10 @@ class MainWindow(QMainWindow):
             y_good = pmean[good]
             i0 = int(np.argmin(np.abs(x_good - x1)))
             y1 = float(y_good[i0]) if float(y_good[i0]) > 0.0 else 1.0
-            slope = -1.0
+            slope = -3.0
             y2 = y1 * (x2 / x1) ** slope
             ax.loglog([x1, x2], [y1, y2], "--", linewidth=2)
-            ax.text(x2, y2, "k^{-1}", fontsize=11, ha="left", va="center", color="black")
+            ax.text(x2, y2, "k^{-3}", fontsize=11, ha="left", va="center", color="black")
 
         # Metadata annotation (force black so it won't be blue)
         # Keep it short + useful
