@@ -515,13 +515,3 @@ if __name__ == "__main__":
 
     pix = sim.make_pixels_component()
     print("Pixels:", pix.shape, pix[0, 0], pix[10, 10])
-
-    '''
-    arr = sim._snapshot(1)
-    np.savetxt(
-        "snapshot.csv",
-        arr,
-        fmt="%d",  # integer formatting
-        delimiter=","
-    )
-    '''
