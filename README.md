@@ -180,10 +180,11 @@ $ uv run --python 3.13 --with mannetroll-palinstrophy==0.1.0 turbulence
 $ uv run --python 3.13 --with mannetroll-palinstrophy[cuda]==0.1.0 turbulence
 ```
 
-This plot shows the **radially averaged 2D FFT power spectrum** of the vorticity field `omega` on **log–log axes**.  
-The x-axis is the **normalized radial wavenumber** \(k / k_\text{Nyquist}\) (from 0 up to ~\(\sqrt{2}\) at the corners), and the y-axis is the **mean FFT power** \(|\hat{\omega}(k)|^2\) averaged within radial bins (with the DC/mean removed).  
-A **vertical line** marks the forcing scale \(k_0\) (normalized), and a **dashed reference slope** is drawn to compare against an expected inertial-range power-law behavior.  
-A small text block annotates key run metadata (N, \(k_0\), Re, viscosity, time, iteration, seed, FPS, etc.).
+## The power spectrum of the vorticity field
+
+The **radially averaged 2D FFT power spectrum** of the vorticity field `omega` on **log–log axes**.  
+The x-axis is the **normalized radial wavenumber** (k/k_Nyquist), and the y-axis is the **mean FFT power** ω(k)² averaged within radial bins.  
+A **vertical line** marks the scale K0, and a **dashed reference slope** k⁻³ is drawn to compare against an expected inertial-range power-law behavior.  
 
 ![spectrum](https://raw.githubusercontent.com/mannetroll/palinstrophy/v0.1.0/spectrum.png)
 
