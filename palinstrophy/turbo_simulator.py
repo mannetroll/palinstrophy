@@ -522,6 +522,7 @@ def create_dns_state(
     K0: float = 100.0,
     CFL: float = 0.75,
     backend: Literal["cpu", "gpu", "auto"] = "auto",
+    seed: int = 1,
 ) -> DnsState:
     xp = get_xp(backend)
 
@@ -545,8 +546,6 @@ def create_dns_state(
 
     NX_half = NX // 2
     visc = 0
-    random.seed()
-    seed = random.randint(1, 1000)
 
     state = DnsState(
         xp=xp,

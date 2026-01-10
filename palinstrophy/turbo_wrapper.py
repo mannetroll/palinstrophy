@@ -65,6 +65,7 @@ class DnsSimulator:
                 K0=self.k0,
                 CFL=self.cfl,
                 backend=self.backend,
+                seed=self.seed,
             )
 
             self.nx = int(self.state.NZ_full)  # "height"
