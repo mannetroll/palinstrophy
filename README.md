@@ -160,7 +160,6 @@ Run with GUI report:
 
     $ scalene -m palinstrophy.turbo_simulator 256 10000 10 201 0.75 cpu
 
-
 ### Memory & CPU profiling with Scalene (CLI only)
 
 For a terminal-only summary:
