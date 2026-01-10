@@ -27,7 +27,7 @@ Run an cupystorm window that:
 - Lets you switch **colormap** (several built-in palettes)
 - Lets you change simulation parameters on the fly:
   - Grid size **N**
-  - Reynolds number **Re**
+  - Reynolds number **Re** (adapted)
   - Initial spectrum peak **K0**
   - CFL number **CFL**
   - Max steps / auto-reset limit
@@ -42,7 +42,6 @@ Single-key shortcuts (application-wide) for fast control:
 - **V**: cycle variable
 - **C**: cycle colormap
 - **N**: cycle grid size
-- **R**: cycle Reynolds number
 - **K**: cycle K0
 - **L**: cycle CFL
 - **S**: cycle max steps
@@ -66,7 +65,6 @@ From the project root:
 
     $ uv sync
     $ uv run -- turbulence
-    $ uv run -- turbulence 2048 1E12 15 10 0.5 auto 5
     $ uv run -- sim
 
 ## The DNS with SciPy (1024 x 1024)
@@ -108,7 +106,6 @@ On a CUDA machine (e.g. RTX 3090):
 
        $ uv sync --extra cuda
        $ uv run -- turbulence
-       $ uv run -- turbulence 2048 1E12 15 10 0.5 auto 5
        $ uv run -- sim
 
 3. Verify that CuPy sees the GPU:
@@ -169,7 +166,7 @@ Run with GUI report:
 For a terminal-only summary:
 
     $ scalene --cli --cpu -m palinstrophy.turbo_simulator 512 10000 10 201 0.75 cpu
-    $ scalene --cli --cpu -m palinstrophy.turbo_main 2048 1E12 15 1000 0.5 auto 5 100 
+    $ scalene --cli --cpu -m palinstrophy.turbo_main 512 15 10000 1E5 0.1 auto 10 201
 
 ## one-liner CPU/SciPy
 
