@@ -798,7 +798,7 @@ class MainWindow(QMainWindow):
         minutes = elapsed / 60.0
         FPS = steps / elapsed
         meta = (
-            f"{self.title_backend} {_dt.datetime.now().strftime("%Y-%m-%d %H:%M")}\n"
+            f"{_dt.datetime.now().strftime("%Y-%m-%d %H:%M")}\n"
             f"N={min(NX, NZ)}\n"
             f"K0={self.sim.k0:g}\n"
             f"Re={self.sim.re:g}\n"
@@ -809,7 +809,8 @@ class MainWindow(QMainWindow):
             f"pal/Zkmax²={self.palinstrophy_over_enstrophy_kmax2:.2e}\n"
             f"minutes={minutes:.2f}\n"
             f"seed={self.sim.seed}\n"
-            f"FPS={FPS:.1f}"
+            f"FPS={FPS:.1f}\n"
+            f"{self.title_backend}"
         )
         ax.text(
             0.02, 0.02, meta,
