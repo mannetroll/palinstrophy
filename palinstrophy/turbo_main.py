@@ -1322,7 +1322,7 @@ def main() -> None:
     K0 = float(args[1]) if len(args) > 1 else 15
     Re = float(args[2]) if len(args) > 2 else Re_from_N_K0(N, K0)
     STEPS = args[3] if len(args) > 3 else "50000"
-    CFL = float(args[4]) if len(args) > 4 else 0.3
+    CFL = float(args[4]) if len(args) > 4 else 0.4
 
     UPDATE = args[6] if len(args) > 6 else "5"
     ITERATIONS = int(args[7]) if len(args) > 7 else 10**9
