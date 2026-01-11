@@ -1,11 +1,28 @@
 # 2D Turbulence Simulation (SciPy / CuPy)
 
+Source code: https://github.com/mannetroll/palinstrophy
+
 A Direct Numerical Simulation (DNS) code for **2D homogeneous incompressible turbulence**
 
 It supports:
 
 - **SciPy / NumPy** for CPU runs
 - **CuPy** (optional) for GPU acceleration on CUDA devices (e.g. RTX 3090)
+
+## One-liner CPU/SciPy
+
+```
+$ curl -LsSf https://astral.sh/uv/install.sh | sh
+$ uv cache clean mannetroll-palinstrophy
+$ uv run --python 3.13 --with mannetroll-palinstrophy==0.1.0 turbulence
+```
+
+## One-liner GPU/CuPy
+
+```
+$ uv run --python 3.13 --with mannetroll-palinstrophy[cuda]==0.1.0 turbulence
+```
+
 
 ### DNS solver
 The solver includes:
@@ -165,20 +182,6 @@ For a terminal-only summary:
 
     $ scalene --cli --cpu -m palinstrophy.turbo_simulator 512 10000 10 201 0.75 cpu
     $ scalene --cli --cpu -m palinstrophy.turbo_main 512 15 10000 1E5 0.1 auto 10 201
-
-## one-liner CPU/SciPy
-
-```
-$ curl -LsSf https://astral.sh/uv/install.sh | sh
-$ uv cache clean mannetroll-palinstrophy
-$ uv run --python 3.13 --with mannetroll-palinstrophy==0.1.0 turbulence
-```
-
-## one-liner GPU/CuPy
-
-```
-$ uv run --python 3.13 --with mannetroll-palinstrophy[cuda]==0.1.0 turbulence
-```
 
 ## The power spectrum of the vorticity field
 
