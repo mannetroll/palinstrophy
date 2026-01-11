@@ -23,9 +23,14 @@ dependencies = [
 # Optional GPU extra
 [project.optional-dependencies]
 cuda = [
-  "cupy-cuda13x>=13.6.0",
+  "cupy-cuda13x>=13.6.0; sys_platform != 'darwin'",
   "fastrlock>=0.8",
 ]
+dev = [
+  "build>=1.3.0",
+  "twine>=6.2.0",
+]
+
 
 [project.scripts]
 turbulence = "palinstrophy.turbo_main:main"
@@ -47,3 +52,4 @@ dev = [
     "build>=1.3.0",
     "twine>=6.2.0",
 ]
+
