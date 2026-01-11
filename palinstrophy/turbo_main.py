@@ -1340,7 +1340,8 @@ def main() -> None:
     ITERATIONS = int(args[7]) if len(args) > 7 else 10**9
 
     app = QApplication(sys.argv)
-    icon_path = Path(__file__).with_name("palinstrophy.icns")
+    icon_file = "palinstrophy.icns" if sys.platform == "darwin" else "palinstrophy.ico"
+    icon_path = Path(__file__).with_name(icon_file)
     icon = QIcon(str(icon_path))
     app.setWindowIcon(icon)
 
