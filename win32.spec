@@ -2,6 +2,7 @@
 # Build (PowerShell):
 #   Remove-Item -Recurse -Force build,dist -ErrorAction SilentlyContinue
 #   uv sync --extra cuda
+#   uv pip install pyinstaller
 #   uv run pyinstaller win32.spec --noconfirm --clean
 #
 # Run:
