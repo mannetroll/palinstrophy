@@ -38,7 +38,7 @@ cupy_datas += collect_data_files("cupy", include_py_files=False)
 cupy_datas += collect_data_files("cupy_backends", include_py_files=False)
 
 a = Analysis(
-    ["palinstrophy/dns_main.py"],
+    ["palinstrophy/turbo_main.py"],
     pathex=["."],
     binaries=cupy_binaries,
     datas=cupy_datas,
