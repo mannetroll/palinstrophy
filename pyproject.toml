@@ -36,7 +36,7 @@ sim = "palinstrophy.turbo_simulator:main"
 include = ["palinstrophy"]
 
 [tool.setuptools.package-data]
-palinstrophy = ["*.icns"]
+palinstrophy = ["*.icns", "*.ico"]
 
 [build-system]
 requires = ["setuptools>=77", "wheel"]
