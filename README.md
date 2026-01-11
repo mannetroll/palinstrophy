@@ -9,7 +9,7 @@ It supports:
 - **SciPy / NumPy** for CPU runs
 - **CuPy** (optional) for GPU acceleration on CUDA devices (e.g. RTX 3090)
 
-## One-liner CPU/SciPy
+## One-liner CPU/SciPy (macOS)
 
 ```
 $ curl -LsSf https://astral.sh/uv/install.sh | sh
@@ -17,7 +17,7 @@ $ uv cache clean mannetroll-palinstrophy
 $ uv run --python 3.13 --with mannetroll-palinstrophy==0.1.0 turbulence
 ```
 
-## One-liner GPU/CuPy
+## One-liner GPU/CuPy (Windows or Linux with CUDA)
 
 ```
 $ uv run --python 3.13 --with mannetroll-palinstrophy[cuda]==0.1.0 turbulence
