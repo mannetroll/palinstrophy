@@ -29,7 +29,6 @@ import numpy as np
 from palinstrophy import turbo_simulator as dns_all
 from palinstrophy.turbo_wrapper import DnsSimulator
 
-MAX_REYNOLDS_NUMBER = 1e12
 FUSION = "Fusion"
 
 # Simple helper: build a 256x3 uint8 LUT from color stops in 0..1
@@ -1218,8 +1217,9 @@ class MainWindow(QMainWindow):
         # Update "effective Re" everywhere (requested)
         Re_eff = 1.0 / float(nu)
 
-        if Re_eff > MAX_REYNOLDS_NUMBER:
-            Re_eff = MAX_REYNOLDS_NUMBER
+        max_reynolds_number = Re_from_N_K0(self.sim.N, self.sim.k0)
+        if Re_eff > max_reynolds_number:
+            Re_eff = max_reynolds_number
 
         self.sim.re = float(Re_eff)
         self.sim.state.Re = float(self.sim.re)
