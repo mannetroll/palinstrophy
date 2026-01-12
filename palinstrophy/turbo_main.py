@@ -1217,7 +1217,7 @@ class MainWindow(QMainWindow):
         # Update "effective Re" everywhere (requested)
         Re_eff = 1.0 / float(nu)
 
-        max_reynolds_number = Re_from_N_K0(self.sim.N, self.sim.k0)
+        max_reynolds_number = 10 * Re_from_N_K0(self.sim.N, self.sim.k0)
         if Re_eff > max_reynolds_number:
             Re_eff = max_reynolds_number
 
