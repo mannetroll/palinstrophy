@@ -1209,7 +1209,7 @@ class MainWindow(QMainWindow):
         # "PID" knobs (start like the original)
         Kp = 1.0
         Ki = 0.0
-        Kd = 0.05
+        Kd = 0.1
 
         p = self.palinstrophy_over_enstrophy_kmax2
         if p is None:
