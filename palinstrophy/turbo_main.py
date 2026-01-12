@@ -704,6 +704,10 @@ class MainWindow(QMainWindow):
 
     def on_reset_clicked(self) -> None:
         self.on_stop_clicked()
+        Reynolds= Re_from_N_K0(self.sim.N, self.sim.k0)
+        self.sim.state.visc = 1.0 / Reynolds
+        self.sim.re = Reynolds
+        self.sim.state.Re = Reynolds
         self.sim.reset_field()
         self._update_image(self.sim.get_frame_pixels())
         self._update_status(self.sim.get_time(), self.sim.get_iteration(), None)
