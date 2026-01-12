@@ -342,6 +342,9 @@ class MainWindow(QMainWindow):
         self.sig: float = 20.0
         self.mu: float = 0.0
 
+        self._e_int = 0.0
+        self._e_prev = 0.0
+
         # --- grain metrics (omega) ---
         self.kmax: Optional[float] = None
         self.high_k_fraction: Optional[float] = None
@@ -1189,42 +1192,56 @@ class MainWindow(QMainWindow):
         )
         self.status.showMessage(txt)
 
-    def adapt_visc(self) -> None:
-        # target in the "raw" metric (not *10000)
+    def adapt_visc(self, dt: float = 1.0) -> None:
         target = 0.005
-        epsilon = 0.001
-        hi = target * (1.0 + epsilon)
-        lo = target * (1.0 - epsilon)
+
+        # Match original behavior:
+        deadband = 0.001  # relative band: ±0.1%
+        max_frac = 0.001  # max fractional change per update: 0.1%
+
+        # "PID" knobs (start like original)
+        Kp = 1.0
+        Ki = 0.0
+        Kd = 0.05
 
         p = self.palinstrophy_over_enstrophy_kmax2
         if p is None:
             return
 
+        # relative error
+        e = (p - target) / target
+
+        # deadband (same as your hi/lo)
+        if abs(e) < deadband:
+            return
+
+        # integral/derivative (off by default)
+        if Ki != 0.0:
+            self._e_int += e * dt
+        de = (e - self._e_prev) / dt if dt > 0 else 0.0
+        self._e_prev = e
+
+        # controller output in "log space" (multiplicative update)
+        u = Kp * e + Ki * self._e_int + Kd * de
+
+        # Clamp to fixed step size (this is what makes it behave like your original)
+        # Use log clamp so it's truly symmetric multiplicatively.
+        u = max(-max_frac, min(max_frac, u))
+
         nu = float(self.sim.state.visc)
+        nu_new = nu * math.exp(u)  # ~ nu*(1±epsilon) for small u
 
-        if p > hi:
-            # too much small-scale crowding: add dissipation
-            nu *= 1.0 + epsilon
-            #print(f"Adjusting viscosity: p={p:.5f}, nu={nu:.5f}")
-        elif p < lo:
-            # safe: try less dissipation (higher Re)
-            nu *= 1.0 - epsilon
-            #print(f"Adjusting viscosity: p={p:.5f}, nu={nu:.5f}")
+        # Enforce your Re cap by clamping nu directly
+        max_re = 5 * Re_from_N_K0(self.sim.N, self.sim.k0)
+        nu_min = 1.0 / float(max_re)
+        if nu_new < nu_min:
+            nu_new = nu_min
 
-        # Update solver viscosity
-        self.sim.state.visc = float(nu)
-
-        # Update "effective Re" everywhere (requested)
-        Re_eff = 1.0 / float(nu)
-
-        max_reynolds_number = 10 * Re_from_N_K0(self.sim.N, self.sim.k0)
-        if Re_eff > max_reynolds_number:
-            Re_eff = max_reynolds_number
-
+        # write once, consistent
+        self.sim.state.visc = float(nu_new)
+        Re_eff = 1.0 / float(nu_new)
         self.sim.re = float(Re_eff)
-        self.sim.state.Re = float(self.sim.re)
-        self.sim.state.visc = 1.0 / float(Re_eff)
-        # self.sim.state.visc already set above
+        self.sim.state.Re = float(Re_eff)
 
     # ------------------------------------------------------------------
     def keyPressEvent(self, event) -> None:
