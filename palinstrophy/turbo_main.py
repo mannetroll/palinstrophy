@@ -1193,13 +1193,13 @@ class MainWindow(QMainWindow):
         self.status.showMessage(txt)
 
     def adapt_visc(self, dt: float = 1.0) -> None:
-        target = 0.005
+        target = 0.002
 
         # Match original behavior:
-        deadband = 0.001  # relative band: ±0.1%
+        deadband = 0.01  # relative band: ±1%
         max_frac = 0.001  # max fractional change per update: 0.1%
 
-        # "PID" knobs (start like original)
+        # "PID" knobs (start like the original)
         Kp = 1.0
         Ki = 0.0
         Kd = 0.05
@@ -1232,7 +1232,7 @@ class MainWindow(QMainWindow):
         nu_new = nu * math.exp(u)  # ~ nu*(1±epsilon) for small u
 
         # Enforce your Re cap by clamping nu directly
-        max_re = 5 * Re_from_N_K0(self.sim.N, self.sim.k0)
+        max_re = 10 * Re_from_N_K0(self.sim.N, self.sim.k0)
         nu_min = 1.0 / float(max_re)
         if nu_new < nu_min:
             nu_new = nu_min
