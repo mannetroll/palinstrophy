@@ -831,6 +831,149 @@ class MainWindow(QMainWindow):
         fig.savefig(out_png)
         plt.close(fig)
 
+    def _save_omega_radial_spectrum2(self, omega: np.ndarray, out_png: str) -> None:
+        """
+        Save a log-log radially averaged 2D FFT power spectrum (approx) as a PNG figure.
+
+        - x-axis: normalized radius  k / k_Nyquist  where k_Nyquist = N/2 (axis Nyquist)
+          => max radius reaches ~sqrt(2) at the corners.
+        - y-axis: radially averaged power (mean within radial bins)
+        """
+        import matplotlib.pyplot as plt
+
+        a = np.asarray(omega, dtype=np.float64)
+        if a.ndim != 2:
+            return
+
+        NZ, NX = a.shape
+
+        # Remove mean (DC)
+        a = a - float(a.mean())
+
+        # 2D FFT power
+        W = np.fft.fft2(a)
+        P = (W.real * W.real + W.imag * W.imag)  # |W|^2
+
+        # Frequency grids in "integer mode" units
+        kx = np.fft.fftfreq(NX) * NX
+        kz = np.fft.fftfreq(NZ) * NZ
+        KZ, KX = np.meshgrid(kz, kx, indexing="ij")
+
+        # Normalized radial wavenumber: k / (N/2)
+        # Use axis Nyquist based on the smaller dimension (robust if NZ!=NX)
+        N = float(min(NX, NZ))
+        k_nyq = 0.5 * N
+        R = np.sqrt(KX * KX + KZ * KZ) / k_nyq
+
+        # Exclude the DC bin (R==0) from the radial statistics
+        mask = R > 0.0
+        r = R[mask].ravel()
+        p = P[mask].ravel()
+
+        # Radial binning up to r_max = sqrt(2) (corner)
+        r_max = np.sqrt(2.0)
+        nbins = max(32, int(2 * min(NX, NZ)))  # reasonably smooth curve
+        # Map r in (0..r_max] -> bin index [0..nbins-1]
+        idx = np.floor((r / r_max) * nbins).astype(np.int64)
+        idx = np.clip(idx, 0, nbins - 1)
+
+        # Mean power per radial bin
+        psum = np.bincount(idx, weights=p, minlength=nbins)
+        cnt = np.bincount(idx, minlength=nbins).astype(np.float64)
+        good = cnt > 0.0
+        pmean = np.zeros(nbins, dtype=np.float64)
+        pmean[good] = psum[good] / cnt[good]
+
+        good_mean = good & (pmean > 0.0)
+        good_sum = good & (psum > 0.0)
+
+        # Bin centers in normalized radius
+        r_edges = np.linspace(0.0, r_max, nbins + 1)
+        r_centers = 0.5 * (r_edges[:-1] + r_edges[1:])
+
+        # Plot (match “last time” style)
+        fig = plt.figure(figsize=(8, 5))
+        ax = fig.add_subplot(1, 1, 1)
+        ax.loglog(r_centers[good_mean], pmean[good_mean], label="mean per mode")
+        ax.loglog(r_centers[good_sum], psum[good_sum], label="shell sum")
+        ax.set_ylim(bottom=1)
+        ax.set_title("Omega: radial FFT power spectra (mean and shell sum)")
+        ax.set_xlabel("normalized radius  k / k_Nyquist")
+        ax.set_ylabel("power")
+        ax.legend(loc="upper right")
+        k0_norm = (2.0 * float(self.sim.k0)) / float(self.sim.N)
+        ax.axvline(k0_norm)
+
+        # Reference decay lines anchored at K0
+        # In a 2D forward enstrophy cascade with E(k) ~ k^-3:
+        #   shell-sum |ω̂|^2 (enstrophy spectrum) ~ k^-1
+        #   mean per mode in a 2D ring            ~ k^-2  (because modes per shell ~ k)
+        x2 = 0.7
+        if np.any(good_mean):
+            x_good = r_centers[good_mean]
+            y_good = pmean[good_mean]
+
+            i_peak = int(np.argmax(y_good))
+            x1 = float(x_good[i_peak])
+            y1 = float(y_good[i_peak]) if float(y_good[i_peak]) > 0.0 else 1.0
+
+            if x2 != x1:
+                slope = -2.0
+                y2 = y1 * (x2 / x1) ** slope
+                ax.loglog([x1, x2], [y1, y2], "--", linewidth=2)
+                ax.text(x2, y2 * 2, r"$k^{-2}$", fontsize=11, ha="left", va="center", color="black")
+
+        if np.any(good_sum):
+            x_good = r_centers[good_sum]
+            y_good = psum[good_sum]
+
+            i_peak = int(np.argmax(y_good))
+            x1 = float(x_good[i_peak])
+            y1 = float(y_good[i_peak]) if float(y_good[i_peak]) > 0.0 else 1.0
+
+            if x2 != x1:
+                slope = -1.0
+                y2 = y1 * (x2 / x1) ** slope
+                ax.loglog([x1, x2], [y1, y2], "--", linewidth=2)
+                ax.text(x2, y2 * 0.7, r"$k^{-1}$", fontsize=11, ha="left", va="center", color="black")
+
+        # Metadata annotation (force black so it won't be blue)
+        # Keep it short + useful
+        # ---- FPS from simulation start ----
+        elapsed = time.time() - self._sim_start_time
+        steps = self.sim.get_iteration() - self._sim_start_iter
+        minutes = elapsed / 60.0
+        FPS = steps / elapsed
+        meta = (
+            f"{_dt.datetime.now().strftime('%Y-%m-%d %H:%M')}\n"
+            f"N={self.sim.N}\n"
+            f"K0={self.sim.k0:g}\n"
+            f"Re={self.sim.re:g}\n"
+            f"visc={float(self.sim.state.visc):.3g}\n"
+            f"T={float(self.sim.get_time()):.6g}\n"
+            f"IT={int(self.sim.get_iteration())}\n"
+            f"σ={int(self.sig)}\n"
+            f"pal/Zkmax²={self.palinstrophy_over_enstrophy_kmax2:.2e}\n"
+            f"minutes={minutes:.2f}\n"
+            f"seed={self.sim.seed}\n"
+            f"FPS={FPS:.1f}\n"
+            f"{self.title_backend}"
+        )
+        ax.text(
+            0.02, 0.02, meta,
+            transform=ax.transAxes,
+            ha="left", va="bottom",
+            fontsize=10,
+            linespacing=1.5,
+            color="black",
+        )
+
+        fig.tight_layout()
+        fig.savefig(out_png)
+        plt.close(fig)
+
+
+
     def _save_energy_spectrum_uv(self, u: np.ndarray, v: np.ndarray, out_png: str) -> None:
         """
         Save a log-log isotropic kinetic energy spectrum estimate E(k) from u,v.
@@ -905,17 +1048,21 @@ class MainWindow(QMainWindow):
         ax.axvline(k0_norm)
 
         # Reference decay line with slope -3 (textbook enstrophy cascade: E(k) ~ k^-3)
-        x1 = float(k0_norm)
         x2 = 0.7
-        if x2 != x1 and np.any(good):
+        if x2 > 0.0 and np.any(good):
             x_good = r_centers[good]
             y_good = esum[good]
-            i0 = int(np.argmin(np.abs(x_good - x1)))
-            y1 = float(y_good[i0]) if float(y_good[i0]) > 0.0 else 1.0
-            slope = -3.0
-            y2 = y1 * (x2 / x1) ** slope
-            ax.loglog([x1, x2], [y1, y2], "--", linewidth=2)
-            ax.text(x2, y2 * 2, r"$k^{-3}$", fontsize=11, ha="left", va="center", color="black")
+
+            # Anchor at the maximum of the energy spectrum (peak) instead of K0
+            i_peak = int(np.argmax(y_good))
+            x1 = float(x_good[i_peak])
+            y1 = float(y_good[i_peak]) if float(y_good[i_peak]) > 0.0 else 1.0
+
+            if x2 != x1:
+                slope = -3.0
+                y2 = y1 * (x2 / x1) ** slope
+                ax.loglog([x1, x2], [y1, y2], "--", linewidth=2)
+                ax.text(x2, y2 * 2, r"$k^{-3}$", fontsize=11, ha="left", va="center", color="black")
 
         # Metadata annotation (keep it short + useful)
         elapsed = time.time() - self._sim_start_time
@@ -1004,7 +1151,7 @@ class MainWindow(QMainWindow):
 
         omega = self._get_full_field("omega")
         self._dump_pgm_full(omega, os.path.join(folder_path, "omega.pgm"))
-        self._save_omega_radial_spectrum(omega, os.path.join(folder_path, f"omega_spectrum_{suffix}.png"))
+        self._save_omega_radial_spectrum2(omega, os.path.join(folder_path, f"omega_spectrum_{suffix}.png"))
 
         # Textbook enstrophy cascade check: E(k) from u,v in Fourier space (expect ~k^-3 range)
         self._save_energy_spectrum_uv(u, v, os.path.join(folder_path, f"energy_spectrum_{suffix}.png"))
