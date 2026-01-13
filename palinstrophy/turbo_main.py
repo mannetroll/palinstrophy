@@ -786,7 +786,7 @@ class MainWindow(QMainWindow):
         # which implies an omega spectrum |ω̂|^2 ~ k^2 E(k) ~ k^-1.
         x1 = float(k0_norm)
         x2 = 0.7
-        if x1 > 0.0 and x2 > 0.0 and x2 != x1 and np.any(good):
+        if x2 != x1 and np.any(good):
             x_good = r_centers[good]
             y_good = pmean[good]
             i0 = int(np.argmin(np.abs(x_good - x1)))
