@@ -831,6 +831,122 @@ class MainWindow(QMainWindow):
         fig.savefig(out_png)
         plt.close(fig)
 
+    def _save_energy_spectrum_uv(self, u: np.ndarray, v: np.ndarray, out_png: str) -> None:
+        """
+        Save a log-log isotropic kinetic energy spectrum estimate E(k) from u,v.
+
+        This is the textbook definition in Fourier space:
+            E(k) ∝ sum_{|k| in shell} (|û(k)|^2 + |v̂(k)|^2)
+
+        Notes:
+        - This uses a simple shell-sum over radially binned wavenumbers.
+        - x-axis uses normalized radius k / k_Nyquist where k_Nyquist = N/2 (axis Nyquist).
+        - Scaling constants do not matter for the slope; this is for exponent inspection.
+        """
+        import matplotlib.pyplot as plt
+
+        u = np.asarray(u, dtype=np.float64)
+        v = np.asarray(v, dtype=np.float64)
+        if u.ndim != 2 or v.ndim != 2 or u.shape != v.shape:
+            return
+
+        NZ, NX = u.shape
+
+        # Remove mean (DC)
+        u = u - float(u.mean())
+        v = v - float(v.mean())
+
+        # 2D FFT power of velocity components
+        U = np.fft.fft2(u)
+        V = np.fft.fft2(v)
+        P = (U.real * U.real + U.imag * U.imag) + (V.real * V.real + V.imag * V.imag)
+
+        # Frequency grids in "integer mode" units
+        kx = np.fft.fftfreq(NX) * NX
+        kz = np.fft.fftfreq(NZ) * NZ
+        KZ, KX = np.meshgrid(kz, kx, indexing="ij")
+
+        # Normalized radial wavenumber: k / (N/2)
+        N = float(min(NX, NZ))
+        k_nyq = 0.5 * N
+        R = np.sqrt(KX * KX + KZ * KZ) / k_nyq
+
+        # Exclude the DC bin (R==0) from the radial statistics
+        mask = R > 0.0
+        r = R[mask].ravel()
+        p = P[mask].ravel()
+
+        # Radial binning up to r_max = sqrt(2) (corner)
+        r_max = np.sqrt(2.0)
+        nbins = max(32, int(2 * min(NX, NZ)))  # reasonably smooth curve
+        idx = np.floor((r / r_max) * nbins).astype(np.int64)
+        idx = np.clip(idx, 0, nbins - 1)
+
+        # Shell-sum energy spectrum estimate
+        esum = np.bincount(idx, weights=p, minlength=nbins)
+        cnt = np.bincount(idx, minlength=nbins).astype(np.float64)
+        good = (cnt > 0.0) & (esum > 0.0)
+
+        # Bin centers in normalized radius
+        r_edges = np.linspace(0.0, r_max, nbins + 1)
+        r_centers = 0.5 * (r_edges[:-1] + r_edges[1:])
+
+        # Plot
+        fig = plt.figure(figsize=(8, 5))
+        ax = fig.add_subplot(1, 1, 1)
+        ax.loglog(r_centers[good], esum[good])
+        ax.set_ylim(bottom=1)
+        ax.set_title("Energy spectrum estimate E(k) from u,v (shell sum)")
+        ax.set_xlabel("normalized radius  k / k_Nyquist")
+        ax.set_ylabel("shell-sum energy (unnormalized)")
+
+        # Mark K0 location on normalized axis (uses simulation N, not image N)
+        k0_norm = (2.0 * float(self.sim.k0)) / float(self.sim.N)
+        ax.axvline(k0_norm)
+
+        # Reference decay line with slope -3 (textbook enstrophy cascade: E(k) ~ k^-3)
+        x1 = float(k0_norm)
+        x2 = 0.7
+        if x2 != x1 and np.any(good):
+            x_good = r_centers[good]
+            y_good = esum[good]
+            i0 = int(np.argmin(np.abs(x_good - x1)))
+            y1 = float(y_good[i0]) if float(y_good[i0]) > 0.0 else 1.0
+            slope = -3.0
+            y2 = y1 * (x2 / x1) ** slope
+            ax.loglog([x1, x2], [y1, y2], "--", linewidth=2)
+            ax.text(x2, y2 * 2, r"$k^{-3}$", fontsize=11, ha="left", va="center", color="black")
+
+        # Metadata annotation (keep it short + useful)
+        elapsed = time.time() - self._sim_start_time
+        steps = self.sim.get_iteration() - self._sim_start_iter
+        minutes = elapsed / 60.0
+        FPS = steps / elapsed if elapsed > 0 else 0.0
+        meta = (
+            f"{_dt.datetime.now().strftime('%Y-%m-%d %H:%M')}\n"
+            f"N={self.sim.N}\n"
+            f"K0={self.sim.k0:g}\n"
+            f"Re={self.sim.re:g}\n"
+            f"visc={float(self.sim.state.visc):.3g}\n"
+            f"T={float(self.sim.get_time()):.6g}\n"
+            f"IT={int(self.sim.get_iteration())}\n"
+            f"minutes={minutes:.2f}\n"
+            f"FPS={FPS:.1f}\n"
+            f"{self.title_backend}"
+        )
+        ax.text(
+            0.02, 0.02, meta,
+            transform=ax.transAxes,
+            ha="left", va="bottom",
+            fontsize=10,
+            linespacing=1.5,
+            color="black",
+        )
+
+        fig.tight_layout()
+        fig.savefig(out_png)
+        plt.close(fig)
+
     @staticmethod
     def sci_no_plus(x, decimals=0):
         x = float(x)
@@ -878,12 +994,21 @@ class MainWindow(QMainWindow):
         os.makedirs(folder_path, exist_ok=True)
 
         print(f"[SAVE] Dumping fields to folder: {folder_path}")
-        self._dump_pgm_full(self._get_full_field("u"), os.path.join(folder_path, "u_velocity.pgm"))
-        self._dump_pgm_full(self._get_full_field("v"), os.path.join(folder_path, "v_velocity.pgm"))
+
+        u = self._get_full_field("u")
+        v = self._get_full_field("v")
+
+        self._dump_pgm_full(u, os.path.join(folder_path, "u_velocity.pgm"))
+        self._dump_pgm_full(v, os.path.join(folder_path, "v_velocity.pgm"))
         self._dump_pgm_full(self._get_full_field("kinetic"), os.path.join(folder_path, "kinetic.pgm"))
+
         omega = self._get_full_field("omega")
         self._dump_pgm_full(omega, os.path.join(folder_path, "omega.pgm"))
         self._save_omega_radial_spectrum(omega, os.path.join(folder_path, f"omega_spectrum_{suffix}.png"))
+
+        # Textbook enstrophy cascade check: E(k) from u,v in Fourier space (expect ~k^-3 range)
+        self._save_energy_spectrum_uv(u, v, os.path.join(folder_path, f"energy_spectrum_{suffix}.png"))
+
         print("[SAVE] Completed.")
 
     def on_save_clicked(self) -> None:
@@ -981,12 +1106,12 @@ class MainWindow(QMainWindow):
     # ------------------------------------------------------------------
     def _on_timer(self) -> None:
         # one DNS step per timer tick
-        self.sim.step(self._update_intervall)
+        self.sim.step(int(self._update_intervall))
 
         # Count frames since the last GUI update
         self._status_update_counter += 1
 
-        if self._status_update_counter >= self._update_intervall:
+        if self._status_update_counter >= int(self._update_intervall):
             pixels = self.sim.get_frame_pixels()
             self._update_image(pixels)
 
@@ -996,7 +1121,6 @@ class MainWindow(QMainWindow):
             steps = self.sim.get_iteration() - self._sim_start_iter
 
             fps = None
-            mspf = None
             if elapsed > 0 and steps > 0:
                 fps = steps / elapsed
 
