@@ -812,7 +812,7 @@ class MainWindow(QMainWindow):
             f"T={float(self.sim.get_time()):.6g}\n"
             f"IT={int(self.sim.get_iteration())}\n"
             f"σ={int(self.sig)}\n"
-            f"pal/Zkmax²={self.palinstrophy_over_enstrophy_kmax2:.2e}\n"
+            f"10K*pal/Zkmax²={(10000*self.palinstrophy_over_enstrophy_kmax2):.1f}\n"
             f"minutes={minutes:.2f}\n"
             f"seed={self.sim.seed}\n"
             f"FPS={FPS:.1f}\n"
@@ -953,7 +953,7 @@ class MainWindow(QMainWindow):
             f"T={float(self.sim.get_time()):.6g}\n"
             f"IT={int(self.sim.get_iteration())}\n"
             f"σ={int(self.sig)}\n"
-            f"pal/Zkmax²={self.palinstrophy_over_enstrophy_kmax2:.2e}\n"
+            f"10K*pal/Zkmax²={(10000*self.palinstrophy_over_enstrophy_kmax2):.1f}\n"
             f"minutes={minutes:.2f}\n"
             f"seed={self.sim.seed}\n"
             f"FPS={FPS:.1f}\n"
@@ -1078,7 +1078,7 @@ class MainWindow(QMainWindow):
             f"T={float(self.sim.get_time()):.6g}\n"
             f"IT={int(self.sim.get_iteration())}\n"
             f"σ={int(self.sig)}\n"
-            f"10K*pal/Zkmax²={int(10000*self.palinstrophy_over_enstrophy_kmax2)}\n"
+            f"10K*pal/Zkmax²={(10000*self.palinstrophy_over_enstrophy_kmax2):.1f}\n"
             f"minutes={minutes:.2f}\n"
             f"FPS={FPS:.1f}\n"
             f"{self.title_backend}"
@@ -1464,7 +1464,7 @@ class MainWindow(QMainWindow):
         if self.palinstrophy_over_enstrophy_kmax2 is None:
             pr_str = "N/A"
         else:
-            pr_str = f"{10000*self.palinstrophy_over_enstrophy_kmax2:3.0f}"
+            pr_str = f"{(10000*self.palinstrophy_over_enstrophy_kmax2):.1f}"
 
         txt = (
             f"  FPS: {fps_str} | pal/Zkmax²: {pr_str} | σ: {sig_str} | Iter: {it:5d} | T: {t:6.3f} | dt: {dt:.6f} "
