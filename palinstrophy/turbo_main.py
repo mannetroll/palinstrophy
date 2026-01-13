@@ -416,7 +416,7 @@ class MainWindow(QMainWindow):
         self.re_edit = QLineEdit()
         self.re_edit.setToolTip("Reynolds Number (Re)")
         self.re_edit.setReadOnly(True)
-        self.re_edit.setFixedWidth(110)
+        self.re_edit.setFixedWidth(120)
         self.re_edit.setText(str(self.sim.re))
 
         # K0 selector
@@ -1077,6 +1077,8 @@ class MainWindow(QMainWindow):
             f"visc={float(self.sim.state.visc):.3g}\n"
             f"T={float(self.sim.get_time()):.6g}\n"
             f"IT={int(self.sim.get_iteration())}\n"
+            f"σ={int(self.sig)}\n"
+            f"10K*pal/Zkmax²={int(10000*self.palinstrophy_over_enstrophy_kmax2)}\n"
             f"minutes={minutes:.2f}\n"
             f"FPS={FPS:.1f}\n"
             f"{self.title_backend}"
@@ -1422,7 +1424,7 @@ class MainWindow(QMainWindow):
         # Auto-adapt viscosity (and thus effective Re) every rendered update
         self.adapt_visc()
         # show the computed Re (from adapt_visc) in the Re text field
-        self.re_edit.setText(f"Re: {float(self.sim.re):,.1f}")
+        self.re_edit.setText(f" Re: {float(self.sim.re):,.1f}")
 
         k = float(DISPLAY_NORM_K_STD)
         lo = self.mu - k * self.sig
