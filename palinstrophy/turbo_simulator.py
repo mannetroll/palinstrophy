@@ -699,7 +699,7 @@ def dns_pao_host_init(S: DnsState):
     NORM = PI * K0 * K0
 
     print("--- INITIALIZING SciPy/CuPy ---", _dt.datetime.now().strftime("%Y-%m-%d %H:%M"))
-    print(f" N={N}, K0={int(K0)}, Re={S.Re:.4e}")
+    print(f" N={N}, K0={int(K0)}, Re={S.Re:,.1f}")
 
     # ------------------------------------------------------------------
     # Build ALFA(N/2) and GAMMA(N)  (Fortran DALFA, DGAMMA, E1, E3)

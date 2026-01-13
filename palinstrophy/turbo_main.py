@@ -1073,7 +1073,7 @@ class MainWindow(QMainWindow):
             f"{_dt.datetime.now().strftime('%Y-%m-%d %H:%M')}\n"
             f"N={self.sim.N}\n"
             f"K0={self.sim.k0:g}\n"
-            f"Re={self.sim.re:g}\n"
+            f"Re={self.sim.re:,.1f}\n"
             f"visc={float(self.sim.state.visc):.3g}\n"
             f"T={float(self.sim.get_time()):.6g}\n"
             f"IT={int(self.sim.get_iteration())}\n"
@@ -1422,7 +1422,7 @@ class MainWindow(QMainWindow):
         # Auto-adapt viscosity (and thus effective Re) every rendered update
         self.adapt_visc()
         # show the computed Re (from adapt_visc) in the Re text field
-        self.re_edit.setText(f" Re: {float(self.sim.re):.3e}")
+        self.re_edit.setText(f"Re: {float(self.sim.re):,.1f}")
 
         k = float(DISPLAY_NORM_K_STD)
         lo = self.mu - k * self.sig
