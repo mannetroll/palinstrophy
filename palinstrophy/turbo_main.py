@@ -1153,7 +1153,7 @@ class MainWindow(QMainWindow):
 
         omega = self._get_full_field("omega")
         self._dump_pgm_full(omega, os.path.join(folder_path, "omega.pgm"))
-        self._save_omega_radial_spectrum2(omega, os.path.join(folder_path, f"omega_spectrum_{suffix}.png"))
+        # self._save_omega_radial_spectrum2(omega, os.path.join(folder_path, f"omega_spectrum_{suffix}.png"))
 
         # Textbook enstrophy cascade check: E(k) from u,v in Fourier space (expect ~k^-3 range)
         self._save_energy_spectrum_uv(u, v, os.path.join(folder_path, f"energy_spectrum_{suffix}.png"))
