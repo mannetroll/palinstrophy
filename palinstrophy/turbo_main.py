@@ -1143,21 +1143,17 @@ class MainWindow(QMainWindow):
         os.makedirs(folder_path, exist_ok=True)
 
         print(f"[SAVE] Dumping fields to folder: {folder_path}")
-
         u = self._get_full_field("u")
         v = self._get_full_field("v")
-
         self._dump_pgm_full(u, os.path.join(folder_path, "u_velocity.pgm"))
         self._dump_pgm_full(v, os.path.join(folder_path, "v_velocity.pgm"))
         self._dump_pgm_full(self._get_full_field("kinetic"), os.path.join(folder_path, "kinetic.pgm"))
-
-        omega = self._get_full_field("omega")
-        self._dump_pgm_full(omega, os.path.join(folder_path, "omega.pgm"))
-        # self._save_omega_radial_spectrum2(omega, os.path.join(folder_path, f"omega_spectrum_{suffix}.png"))
-
+        self._dump_pgm_full(self._get_full_field("omega"), os.path.join(folder_path, "omega.pgm"))
         # Textbook enstrophy cascade check: E(k) from u,v in Fourier space (expect ~k^-3 range)
         self._save_energy_spectrum_uv(u, v, os.path.join(folder_path, f"energy_spectrum_{suffix}.png"))
-
+        N, K0, Re, CFL, VISC, STEPS, PALIN, SIG, TIME, MINUTES, FPS = self.get_csv_tuple()
+        print("N, K0, Re, CFL, VISC, STEPS, PALIN, SIG, TIME, MINUTES, FPS")
+        print(f"{N}, {K0}, {Re:.4e}, {CFL}, {VISC:.4e}, {STEPS}, {PALIN}, {SIG}, {TIME:.2e}, {MINUTES:.2f}, {FPS:.1f}")
         print("[SAVE] Completed.")
 
     def on_save_clicked(self) -> None:
@@ -1296,7 +1292,16 @@ class MainWindow(QMainWindow):
 
     def quit_sim(self):
         print(f" Max iteration reached: {self.iterations}, exiting...")
-        # --- Build the default folder name ---
+        N, K0, Re, CFL, VISC, STEPS, PALIN, SIG, TIME, MINUTES, FPS = self.get_csv_tuple()
+        print("N, K0, Re, CFL, VISC, STEPS, PALIN, SIG, TIME, MINUTES, FPS")
+        print(f"{N}, {K0}, {Re:.4e}, {CFL}, {VISC:.4e}, {STEPS}, {PALIN}, {SIG}, {TIME:.2e}, {MINUTES:.2f}, {FPS:.1f}")
+        suffix = f"{N}_{K0}_{self.sci_no_plus(Re)}_{CFL}_{STEPS}"
+        folder = f"simulations/palinstrophy_{suffix}"
+        desktop = QStandardPaths.writableLocation(QStandardPaths.StandardLocation.DesktopLocation)
+        self.dump_to_folder(desktop, folder, suffix)
+        QApplication.quit()
+
+    def get_csv_tuple(self) -> tuple[int, int, float, float, float, int, int, int, float, float, float]:
         N = self.sim.N
         Re = self.sim.state.Re
         K0 = int(self.sim.k0)
@@ -1310,17 +1315,8 @@ class MainWindow(QMainWindow):
         elapsed = time.time() - self._sim_start_time
         steps = self.sim.get_iteration() - self._sim_start_iter
         MINUTES = elapsed / 60.0
-        FPS = steps / elapsed
-        print("N, K0, Re, CFL, VISC, STEPS, PALIN, SIG, TIME, MINUTES, FPS")
-        print(f"{N}, {K0}, {Re:.4e}, {CFL}, {VISC:.4e}, {STEPS}, {PALIN}, {SIG}, {TIME:.2e}, {MINUTES:.2f}, {FPS:.1f}")
-        suffix = f"{N}_{K0}_{self.sci_no_plus(Re)}_{CFL}_{STEPS}"
-        folder = f"simulations/palinstrophy_{suffix}"
-        # Default root = Desktop
-        desktop = QStandardPaths.writableLocation(
-            QStandardPaths.StandardLocation.DesktopLocation
-        )
-        self.dump_to_folder(desktop, folder, suffix)
-        QApplication.quit()
+        FPS = steps / elapsed if elapsed > 0 else float("inf")
+        return N, K0, Re, CFL, VISC, STEPS, PALIN, SIG, TIME, MINUTES, FPS
 
     # ------------------------------------------------------------------
     @staticmethod
