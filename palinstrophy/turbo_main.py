@@ -4,6 +4,7 @@ import colorsys
 import os
 import sys
 import time
+import csv
 import datetime as _dt
 from typing import Optional, Literal, cast
 from pathlib import Path
@@ -350,6 +351,12 @@ class MainWindow(QMainWindow):
         self.high_k_fraction: Optional[float] = None
         self.palinstrophy_over_enstrophy_kmax2: Optional[float] = None
 
+        # ---- metrics buffer (for CSV dump) ----
+        self._metrics_rows: list[tuple] = []
+        self._metrics_header = [
+            "N", "K0", "Re", "CFL", "VISC", "STEPS", "PALIN", "SIG", "TIME", "MINUTES", "FPS"
+        ]
+
         # --- central image label ---
         self.image_label = QLabel()
         self.image_label.setContentsMargins(0, 0, 0, 0)
@@ -577,11 +584,11 @@ class MainWindow(QMainWindow):
         Must match _upscale_downscale_u8() scale logic.
 
         Convention (based on your existing mapping code):
-          - scale < 1.0  => upscale by (1/scale) (integer)
-          - scale > 1.0  => downscale by scale   (integer)
+          - scale < 1.0 => upscale by (1/scale) (integer)
+          - scale > 1.0 => downscale by scale (integer)
 
-        Goal: displayed_size ~= N / down <= max_h   (for big N)
-              displayed_size ~= N * up  <= max_h   (for small N)
+        Goal: displayed_size ~= N / down <= max_h (for big N)
+              displayed_size ~= N * up <= max_h (for small N)
         """
         N = int(self.sim.N)
 
@@ -589,7 +596,7 @@ class MainWindow(QMainWindow):
         screen_h = 1024
 
         # Leave room for top buttons, status bar, margins, etc.
-        # Tune this once if you want it a bit larger/smaller on screen.
+        # Tune this at once if you want it a bit larger/smaller on screen.
         ui_margin = 320
         max_h = max(128, screen_h - ui_margin)
 
@@ -717,7 +724,7 @@ class MainWindow(QMainWindow):
         """
         Save a log-log radially averaged 2D FFT power spectrum (approx) as a PNG figure.
 
-        - x-axis: normalized radius  k / k_Nyquist  where k_Nyquist = N/2 (axis Nyquist)
+        - x-axis: normalized radius k / k_Nyquist where k_Nyquist = N/2 (axis Nyquist)
           => max radius reaches ~sqrt(2) at the corners.
         - y-axis: radially averaged power (mean within radial bins)
         """
@@ -766,7 +773,7 @@ class MainWindow(QMainWindow):
         pmean = np.zeros(nbins, dtype=np.float64)
         pmean[good] = psum[good] / cnt[good]
 
-        # Bin centers in normalized radius
+        # Bin centers in a normalized radius
         r_edges = np.linspace(0.0, r_max, nbins + 1)
         r_centers = 0.5 * (r_edges[:-1] + r_edges[1:])
 
@@ -835,7 +842,7 @@ class MainWindow(QMainWindow):
         """
         Save a log-log radially averaged 2D FFT power spectrum (approx) as a PNG figure.
 
-        - x-axis: normalized radius  k / k_Nyquist  where k_Nyquist = N/2 (axis Nyquist)
+        - x-axis: normalized radius k / k_Nyquist where k_Nyquist = N/2 (axis Nyquist)
           => max radius reaches ~sqrt(2) at the corners.
         - y-axis: radially averaged power (mean within radial bins)
         """
@@ -887,7 +894,7 @@ class MainWindow(QMainWindow):
         good_mean = good & (pmean > 0.0)
         good_sum = good & (psum > 0.0)
 
-        # Bin centers in normalized radius
+        # Bin centers in a normalized radius
         r_edges = np.linspace(0.0, r_max, nbins + 1)
         r_centers = 0.5 * (r_edges[:-1] + r_edges[1:])
 
@@ -907,7 +914,7 @@ class MainWindow(QMainWindow):
         # Reference decay lines anchored at K0
         # In a 2D forward enstrophy cascade with E(k) ~ k^-3:
         #   shell-sum |ω̂|^2 (enstrophy spectrum) ~ k^-1
-        #   mean per mode in a 2D ring            ~ k^-2  (because modes per shell ~ k)
+        #   mean per mode in a 2D ring ~ k^-2 (because modes per shell ~ k)
         x2 = 0.7
         if np.any(good_mean):
             x_good = r_centers[good_mean]
@@ -983,7 +990,7 @@ class MainWindow(QMainWindow):
 
         Notes:
         - This uses a simple shell-sum over radially binned wavenumbers.
-        - x-axis uses normalized radius k / k_Nyquist where k_Nyquist = N/2 (axis Nyquist).
+        - X-axis uses normalized radius k / k_Nyquist where k_Nyquist = N/2 (axis Nyquist).
         - Scaling constants do not matter for the slope; this is for exponent inspection.
         """
         import matplotlib.pyplot as plt
@@ -1030,7 +1037,7 @@ class MainWindow(QMainWindow):
         cnt = np.bincount(idx, minlength=nbins).astype(np.float64)
         good = (cnt > 0.0) & (esum > 0.0)
 
-        # Bin centers in normalized radius
+        # Bin centers in a normalized radius
         r_edges = np.linspace(0.0, r_max, nbins + 1)
         r_centers = 0.5 * (r_edges[:-1] + r_edges[1:])
 
@@ -1154,6 +1161,12 @@ class MainWindow(QMainWindow):
         N, K0, Re, CFL, VISC, STEPS, PALIN, SIG, TIME, MINUTES, FPS = self.get_csv_tuple()
         print("N, K0, Re, CFL, VISC, STEPS, PALIN, SIG, TIME, MINUTES, FPS")
         print(f"{N}, {K0}, {Re:.4e}, {CFL}, {VISC:.4e}, {STEPS}, {PALIN}, {SIG}, {TIME:.2e}, {MINUTES:.2f}, {FPS:.1f}")
+        # ---- write metrics CSV ----
+        csv_path = os.path.join(folder_path, f"metrics.csv")
+        with open(csv_path, "w", newline="") as f:
+            w = csv.writer(f)
+            w.writerow(self._metrics_header)
+            w.writerows(self._metrics_rows)
         print("[SAVE] Completed.")
 
     def on_save_clicked(self) -> None:
@@ -1422,15 +1435,18 @@ class MainWindow(QMainWindow):
         # show the computed Re (from adapt_visc) in the Re text field
         self.re_edit.setText(f" Re: {float(self.sim.re):,.0f}")
 
+        # store in memory and write to a CSV file in dump_to_folder() method
+        # store in memory (later written to CSV by dump_to_folder)
+        row = self.get_csv_tuple()
+        self._metrics_rows.append(row)
+
         k = float(DISPLAY_NORM_K_STD)
         lo = self.mu - k * self.sig
         hi = self.mu + k * self.sig
         inv = 255.0 / (hi - lo) if (hi - lo) != 0.0 else 0.0
         pixels = ((pix_f - lo) * inv).round().clip(0.0, 255.0).astype(np.uint8)
-
         pixels = self._upscale_downscale_u8(pixels)
         h, w = pixels.shape
-
         qimg = QImage(
             pixels.data,
             w,
@@ -1438,10 +1454,8 @@ class MainWindow(QMainWindow):
             w,
             QImage.Format.Format_Indexed8,
         )
-
         table = QT_COLOR_TABLES.get(self.current_cmap_name, QT_GRAY_TABLE)
         qimg.setColorTable(table)
-
         pix = QPixmap.fromImage(qimg, Qt.ImageConversionFlag.NoFormatConversion)
         self.image_label.setPixmap(pix)
 
@@ -1450,7 +1464,7 @@ class MainWindow(QMainWindow):
         sig_str = f"{int(self.sig)}" if self.sig is not None else " N/A"
 
         # DPP = Display Pixel Percentage
-        dpp = int(100 / self._display_scale())
+        # dpp = int(100 / self._display_scale())
 
         elapsed_min = (time.time() - self._sim_start_time) / 60.0
         visc = float(self.sim.state.visc)
