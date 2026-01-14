@@ -1071,6 +1071,21 @@ class MainWindow(QMainWindow):
                 ax.loglog([x1, x2], [y1, y2], "--", linewidth=2)
                 ax.text(x2, y2 * 2, r"$k^{-3}$", fontsize=11, ha="left", va="center", color="black")
 
+        meta = self.get_meta()
+        ax.text(
+            0.02, 0.02, meta,
+            transform=ax.transAxes,
+            ha="left", va="bottom",
+            fontsize=10,
+            linespacing=1.5,
+            color="black",
+        )
+
+        fig.tight_layout()
+        fig.savefig(out_png)
+        plt.close(fig)
+
+    def get_meta(self) -> str:
         # Metadata annotation (keep it short + useful)
         elapsed = time.time() - self._sim_start_time
         steps = self.sim.get_iteration() - self._sim_start_iter
@@ -1085,23 +1100,12 @@ class MainWindow(QMainWindow):
             f"T={float(self.sim.get_time()):.6g}\n"
             f"IT={int(self.sim.get_iteration())}\n"
             f"σ={int(self.sig)}\n"
-            f"10K*pal/Zkmax²={(10000*self.palinstrophy_over_enstrophy_kmax2):.1f}\n"
+            f"10K*pal/Zkmax²={(10000 * self.palinstrophy_over_enstrophy_kmax2):.1f}\n"
             f"minutes={minutes:.2f}\n"
             f"FPS={FPS:.1f}\n"
             f"{self.title_backend}"
         )
-        ax.text(
-            0.02, 0.02, meta,
-            transform=ax.transAxes,
-            ha="left", va="bottom",
-            fontsize=10,
-            linespacing=1.5,
-            color="black",
-        )
-
-        fig.tight_layout()
-        fig.savefig(out_png)
-        plt.close(fig)
+        return meta
 
     @staticmethod
     def sci_no_plus(x, decimals=0):
@@ -1161,13 +1165,52 @@ class MainWindow(QMainWindow):
         N, K0, Re, CFL, VISC, STEPS, PALIN, SIG, TIME, MINUTES, FPS = self.get_csv_tuple()
         print("N, K0, Re, CFL, VISC, STEPS, PALIN, SIG, TIME, MINUTES, FPS")
         print(f"{N}, {K0}, {Re:.4e}, {CFL}, {VISC:.4e}, {STEPS}, {PALIN}, {SIG}, {TIME:.2e}, {MINUTES:.2f}, {FPS:.1f}")
+        self.write_plot_csv(folder_path)
+        print("[SAVE] Completed.")
+
+    def write_plot_csv(self, folder_path: str):
         # ---- write metrics CSV ----
         csv_path = os.path.join(folder_path, f"metrics.csv")
         with open(csv_path, "w", newline="") as f:
             w = csv.writer(f)
             w.writerow(self._metrics_header)
             w.writerows(self._metrics_rows)
-        print("[SAVE] Completed.")
+
+        if len(self._metrics_rows) >= 2:
+            import matplotlib.pyplot as plt
+            # unpack rows: (N, K0, Re, CFL, VISC, STEPS, PALIN, SIG, TIME, MINUTES, FPS)
+            steps = np.array([r[5] for r in self._metrics_rows], dtype=np.int64)
+            re_vals = np.array([r[2] for r in self._metrics_rows], dtype=np.float64)
+            palin_vals = np.array([r[6] for r in self._metrics_rows], dtype=np.float64)
+
+            fig = plt.figure(figsize=(8, 5))
+            ax = fig.add_subplot(1, 1, 1)
+
+            # Left axis: Re
+            ax.plot(steps, re_vals)
+            ax.set_xlabel("STEPS")
+            ax.set_ylabel("Re")
+
+            # Right axis: PALIN
+            ax2 = ax.twinx()
+            ax2.plot(steps, palin_vals, linestyle='--')
+            ax2.set_ylabel("PALIN (10K*pal/Zkmax²)")
+            ax.set_title("Metrics vs STEPS")
+
+            meta = self.get_meta()
+            ax.text(
+                0.02, 0.02, meta,
+                transform=ax.transAxes,
+                ha="left", va="bottom",
+                fontsize=10,
+                linespacing=1.5,
+                color="black",
+            )
+
+            fig.tight_layout()
+            plot_path = os.path.join(folder_path, f"steps_Re_PALIN.png")
+            fig.savefig(plot_path)
+            plt.close(fig)
 
     def on_save_clicked(self) -> None:
         # determine variable name for filename
