@@ -1538,7 +1538,7 @@ class MainWindow(QMainWindow):
 
     def adapt_visc(self, dt: float = 1.0) -> None:
         # Match original behavior:
-        deadband = 0.01  # relative band: ±1%
+        deadband = 0.001  # relative band: ±0.1%
         max_frac = 0.01  # max fractional change per update: 1%
 
         # "PID" knobs (start like the original)
