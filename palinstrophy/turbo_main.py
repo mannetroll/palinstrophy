@@ -1189,7 +1189,7 @@ class MainWindow(QMainWindow):
             ax.set_title("Metrics vs STEPS")
 
             # Left axis
-            l1, = ax.plot(steps, re_vals, color='blue', label='Reynolds')
+            l1, = ax.plot(steps, re_vals, color='black', label='Reynolds')
             ax.set_xlabel("STEPS")
             ax.set_ylabel("Re")
 
@@ -1536,7 +1536,7 @@ class MainWindow(QMainWindow):
         target = 0.002
         # Match original behavior:
         deadband = 0.01  # relative band: ±1%
-        max_frac = 0.001  # max fractional change per update: 0.1%
+        max_frac = 0.002  # max fractional change per update: 0.2%
 
         # "PID" knobs (start like the original)
         Kp = 1.0
