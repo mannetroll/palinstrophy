@@ -327,6 +327,7 @@ def _setup_shortcuts(self):
 #   key: ("cpu", NZ, NX) or ("cuda", device_id, NZ, NX)
 #   val: K2 array on the corresponding backend (numpy or cupy)
 _K2_CACHE: dict[tuple, object] = {}
+METRICS_HEADER = ("N","K0","Re","CFL","VISC","STEPS","PALIN","SIG","TIME","MINUTES","FPS")
 
 class MainWindow(QMainWindow):
     def __init__(self, sim: DnsSimulator, steps: str, update: str, iterations: int) -> None:
@@ -353,10 +354,8 @@ class MainWindow(QMainWindow):
         self.palinstrophy_over_enstrophy_kmax2: Optional[float] = None
 
         # ---- metrics buffer (for CSV dump) ----
-        self._metrics_rows: list[tuple] = []
-        self._metrics_header = [
-            "N", "K0", "Re", "CFL", "VISC", "STEPS", "PALIN", "SIG", "TIME", "MINUTES", "FPS"
-        ]
+        self._metrics_rows = []
+        self._metrics_header = list(METRICS_HEADER)
 
         # --- central image label ---
         self.image_label = QLabel()
@@ -713,6 +712,8 @@ class MainWindow(QMainWindow):
     def on_reset_clicked(self) -> None:
         self.on_stop_clicked()
         Reynolds= Re_from_N_K0(self.sim.N, self.sim.k0)
+        self._metrics_rows.clear()
+        self._metrics_header = list(METRICS_HEADER)
         self.sim.state.visc = 1.0 / Reynolds
         self.sim.re = Reynolds
         self.sim.state.Re = Reynolds
@@ -1268,6 +1269,8 @@ class MainWindow(QMainWindow):
         self.sim.re = Re_eff
         self.sim.state.Re = Re_eff
         self.sim.set_N(N)
+        self._metrics_rows.clear()
+        self._metrics_header = list(METRICS_HEADER)
 
         # 1) Update the image first
         self._update_image(self.sim.get_frame_pixels())
@@ -1540,7 +1543,7 @@ class MainWindow(QMainWindow):
 
         # "PID" knobs (start like the original)
         Kp = 1.0
-        Ki = 0.01
+        Ki = 0.0
         Kd = 0.1
 
         p = 10000 * self.palinstrophy_over_enstrophy_kmax2
