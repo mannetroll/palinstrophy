@@ -1178,6 +1178,7 @@ class MainWindow(QMainWindow):
 
         if len(self._metrics_rows) >= 2:
             import matplotlib.pyplot as plt
+            from matplotlib.artist import Artist
             # unpack rows: (N, K0, Re, CFL, VISC, STEPS, PALIN, SIG, TIME, MINUTES, FPS)
             steps = np.array([r[5] for r in self._metrics_rows], dtype=np.int64)
             re_vals = np.array([r[2] for r in self._metrics_rows], dtype=np.float64)
@@ -1185,18 +1186,23 @@ class MainWindow(QMainWindow):
 
             fig = plt.figure(figsize=(8, 5))
             ax = fig.add_subplot(1, 1, 1)
+            ax.set_title("Metrics vs STEPS")
 
-            # Left axis: Re
-            ax.plot(steps, re_vals)
+            # Left axis
+            l1, = ax.plot(steps, re_vals, color='blue', label='Reynolds')
             ax.set_xlabel("STEPS")
             ax.set_ylabel("Re")
 
-            # Right axis: PALIN
+            # Right axis
             ax2 = ax.twinx()
-            ax2.plot(steps, palin_vals, linestyle='--')
-            ax2.axhline(20)
+            l2, = ax2.plot(steps, palin_vals, linestyle='--', label='PALIN')
+            l3 = ax2.axhline(20, linestyle=':', label='target=20')
             ax2.set_ylabel("PALIN (10K*pal/Zkmax²)")
-            ax.set_title("Metrics vs STEPS")
+
+            # One legend
+            handles: list[Artist] = [l1, l2, l3]
+            labels: list[str] = ["Reynolds", "PALIN", "target=20"]
+            ax.legend(handles, labels, loc="upper left")
 
             meta = self.get_meta()
             ax.text(
@@ -1535,7 +1541,7 @@ class MainWindow(QMainWindow):
         # "PID" knobs (start like the original)
         Kp = 1.0
         Ki = 0.0
-        Kd = 0.2
+        Kd = 0.0
 
         p = self.palinstrophy_over_enstrophy_kmax2
         if p is None:
