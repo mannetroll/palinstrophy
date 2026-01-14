@@ -711,7 +711,7 @@ class MainWindow(QMainWindow):
 
     def on_reset_clicked(self) -> None:
         self.on_stop_clicked()
-        Reynolds= Re_from_N_K0(self.sim.N, self.sim.k0)
+        Reynolds = Re_from_N_K0(self.sim.N, self.sim.k0)
         self._metrics_rows.clear()
         self._metrics_header = list(METRICS_HEADER)
         self.sim.state.visc = 1.0 / Reynolds
@@ -1265,9 +1265,9 @@ class MainWindow(QMainWindow):
         N = int(value)
         K0 = float(self.sim.state.K0)
         # Estimate Re
-        Re_eff = Re_from_N_K0(N,K0)
-        self.sim.re = Re_eff
-        self.sim.state.Re = Re_eff
+        Reynolds = Re_from_N_K0(N,K0)
+        self.sim.re = Reynolds
+        self.sim.state.Re = Reynolds
         self.sim.set_N(N)
         self._metrics_rows.clear()
         self._metrics_header = list(METRICS_HEADER)
@@ -1539,12 +1539,12 @@ class MainWindow(QMainWindow):
     def adapt_visc(self, dt: float = 1.0) -> None:
         # Match original behavior:
         deadband = 0.01  # relative band: ±1%
-        max_frac = 0.001  # max fractional change per update: 0.1%
+        max_frac = 0.01  # max fractional change per update: 0.1%
 
         # "PID" knobs (start like the original)
         Kp = 1.0
         Ki = 0.0
-        Kd = 0.1
+        Kd = 0.0
 
         p = 10000 * self.palinstrophy_over_enstrophy_kmax2
         if p is None:
@@ -1573,17 +1573,11 @@ class MainWindow(QMainWindow):
         nu = float(self.sim.state.visc)
         nu_new = nu * math.exp(u)  # ~ nu*(1±epsilon) for small u
 
-        # Enforce your Re cap by clamping nu directly
-        max_re = 10 * Re_from_N_K0(self.sim.N, self.sim.k0)
-        nu_min = 1.0 / float(max_re)
-        if nu_new < nu_min:
-            nu_new = nu_min
-
-        # write once, consistent
-        self.sim.state.visc = float(nu_new)
-        Re_eff = 1.0 / float(nu_new)
-        self.sim.re = float(Re_eff)
-        self.sim.state.Re = float(Re_eff)
+        # Enforce your Re cap by clamping Re directly
+        Re0 = Re_from_N_K0(self.sim.N, self.sim.k0)
+        Re_eff = max(Re0 / 5.0, min(5.0 * Re0, float(self.sim.re)))
+        self.sim.re = self.sim.state.Re = Re_eff
+        self.sim.state.visc = 1.0 / Re_eff
 
     # ------------------------------------------------------------------
     def keyPressEvent(self, event) -> None:
