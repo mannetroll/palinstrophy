@@ -345,6 +345,7 @@ class MainWindow(QMainWindow):
 
         self._e_int = 0.0
         self._e_prev = 0.0
+        self.target = 50.0
 
         # --- grain metrics (omega) ---
         self.kmax: Optional[float] = None
@@ -1196,7 +1197,7 @@ class MainWindow(QMainWindow):
             # Right axis
             ax2 = ax.twinx()
             l2, = ax2.plot(steps, palin_vals, linestyle='--', label='PALIN')
-            l3 = ax2.axhline(20, linewidth=0.5 ,label='target=20')
+            l3 = ax2.axhline(self.target, linewidth=0.5 ,label='target=20')
             ax2.set_ylabel("PALIN (10K*pal/Zkmax²)")
 
             # One legend
@@ -1533,28 +1534,27 @@ class MainWindow(QMainWindow):
         self.status.showMessage(txt)
 
     def adapt_visc(self, dt: float = 1.0) -> None:
-        target = 0.002
         # Match original behavior:
         deadband = 0.01  # relative band: ±1%
-        max_frac = 0.002  # max fractional change per update: 0.2%
+        max_frac = 0.001  # max fractional change per update: 0.1%
 
         # "PID" knobs (start like the original)
         Kp = 1.0
-        Ki = 0.0
+        Ki = 0.01
         Kd = 0.1
 
-        p = self.palinstrophy_over_enstrophy_kmax2
+        p = 10000 * self.palinstrophy_over_enstrophy_kmax2
         if p is None:
             return
 
         # relative error
-        e = (p - target) / target
+        e = (p - self.target) / self.target
 
         # deadband (same as your hi/lo)
         if abs(e) < deadband:
             return
 
-        # integral/derivative (off by default)
+        # integral/derivative
         if Ki != 0.0:
             self._e_int += e * dt
         de = (e - self._e_prev) / dt if dt > 0 else 0.0
