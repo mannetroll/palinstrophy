@@ -346,7 +346,7 @@ class MainWindow(QMainWindow):
 
         self._e_int = 0.0
         self._e_prev = 0.0
-        self.target = 50.0
+        self.target = 20.0
 
         # --- grain metrics (omega) ---
         self.kmax: Optional[float] = None
