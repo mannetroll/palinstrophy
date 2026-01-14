@@ -1542,7 +1542,7 @@ class MainWindow(QMainWindow):
         max_frac = 0.01  # max fractional change per update: 1%
 
         # "PID" knobs (start like the original)
-        Kp = 0.5
+        Kp = 0.25
         Ki = 0.0
         Kd = 0.01
 
