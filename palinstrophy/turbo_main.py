@@ -1194,6 +1194,7 @@ class MainWindow(QMainWindow):
             # Right axis: PALIN
             ax2 = ax.twinx()
             ax2.plot(steps, palin_vals, linestyle='--')
+            ax2.axhline(20)
             ax2.set_ylabel("PALIN (10K*pal/Zkmax²)")
             ax.set_title("Metrics vs STEPS")
 
@@ -1527,7 +1528,6 @@ class MainWindow(QMainWindow):
 
     def adapt_visc(self, dt: float = 1.0) -> None:
         target = 0.002
-
         # Match original behavior:
         deadband = 0.01  # relative band: ±1%
         max_frac = 0.001  # max fractional change per update: 0.1%
@@ -1535,7 +1535,7 @@ class MainWindow(QMainWindow):
         # "PID" knobs (start like the original)
         Kp = 1.0
         Ki = 0.0
-        Kd = 0.1
+        Kd = 0.2
 
         p = self.palinstrophy_over_enstrophy_kmax2
         if p is None:
