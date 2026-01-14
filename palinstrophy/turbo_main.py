@@ -423,7 +423,7 @@ class MainWindow(QMainWindow):
         self.re_edit = QLineEdit()
         self.re_edit.setToolTip("Reynolds Number (Re)")
         self.re_edit.setReadOnly(True)
-        self.re_edit.setFixedWidth(120)
+        self.re_edit.setFixedWidth(100)
         self.re_edit.setText(str(self.sim.re))
 
         # K0 selector
@@ -1487,7 +1487,7 @@ class MainWindow(QMainWindow):
         # Auto-adapt viscosity (and thus effective Re) every rendered update
         self.adapt_visc()
         # show the computed Re (from adapt_visc) in the Re text field
-        self.re_edit.setText(f" Re: {float(self.sim.re):,.0f}")
+        self.re_edit.setText(f" Re: {float(self.sim.re):.3e}")
 
         # store in memory and write to a CSV file in dump_to_folder() method
         # store in memory (later written to CSV by dump_to_folder)
@@ -1539,12 +1539,12 @@ class MainWindow(QMainWindow):
     def adapt_visc(self, dt: float = 1.0) -> None:
         # Match original behavior:
         deadband = 0.01  # relative band: ±1%
-        max_frac = 0.01  # max fractional change per update: 0.1%
+        max_frac = 0.01  # max fractional change per update: 1%
 
         # "PID" knobs (start like the original)
-        Kp = 1.0
+        Kp = 0.5
         Ki = 0.0
-        Kd = 0.0
+        Kd = 0.01
 
         p = 10000 * self.palinstrophy_over_enstrophy_kmax2
         if p is None:
