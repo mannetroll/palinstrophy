@@ -1197,12 +1197,12 @@ class MainWindow(QMainWindow):
             # Right axis
             ax2 = ax.twinx()
             l2, = ax2.plot(steps, palin_vals, linestyle='--', label='PALIN')
-            l3 = ax2.axhline(self.target, linewidth=0.5 ,label='target=20')
+            l3 = ax2.axhline(self.target, linewidth=0.5, label=f"target={self.target}")
             ax2.set_ylabel("PALIN (10K*pal/Zkmax²)")
 
             # One legend
             handles: list[Artist] = [l1, l2, l3]
-            labels: list[str] = ["Reynolds", "PALIN", "target=20"]
+            labels: list[str] = ["Reynolds", "PALIN", f"target={self.target}"]
             ax.legend(handles, labels, loc="upper right")
 
             meta = self.get_meta()
