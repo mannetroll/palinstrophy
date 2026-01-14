@@ -1196,7 +1196,7 @@ class MainWindow(QMainWindow):
             # Right axis
             ax2 = ax.twinx()
             l2, = ax2.plot(steps, palin_vals, linestyle='--', label='PALIN')
-            l3 = ax2.axhline(20, linestyle=':', label='target=20')
+            l3 = ax2.axhline(20, linewidth=0.5 ,label='target=20')
             ax2.set_ylabel("PALIN (10K*pal/Zkmax²)")
 
             # One legend
