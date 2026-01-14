@@ -1202,7 +1202,7 @@ class MainWindow(QMainWindow):
             # One legend
             handles: list[Artist] = [l1, l2, l3]
             labels: list[str] = ["Reynolds", "PALIN", "target=20"]
-            ax.legend(handles, labels, loc="upper left")
+            ax.legend(handles, labels, loc="upper right")
 
             meta = self.get_meta()
             ax.text(
@@ -1541,7 +1541,7 @@ class MainWindow(QMainWindow):
         # "PID" knobs (start like the original)
         Kp = 1.0
         Ki = 0.0
-        Kd = 0.0
+        Kd = 0.1
 
         p = self.palinstrophy_over_enstrophy_kmax2
         if p is None:
