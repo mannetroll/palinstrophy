@@ -925,7 +925,7 @@ class MainWindow(QMainWindow):
             import matplotlib.pyplot as plt
             from matplotlib.artist import Artist
             # unpack rows: (N, K0, Re, CFL, VISC, STEPS, PALIN, SIG, TIME, MINUTES, FPS)
-            steps = np.array([r[5] for r in self._csv_rows], dtype=np.int64)
+            time = np.array([r[8] for r in self._csv_rows], dtype=np.float64)
             re_vals = np.array([r[2] for r in self._csv_rows], dtype=np.float64)
             palin_vals = np.array([r[6] for r in self._csv_rows], dtype=np.float64)
 
@@ -934,13 +934,13 @@ class MainWindow(QMainWindow):
             ax.set_title("Metrics vs STEPS")
 
             # Left axis
-            l1, = ax.plot(steps, re_vals, color='black', label='Reynolds')
-            ax.set_xlabel("STEPS")
+            l1, = ax.plot(time, re_vals, color='black', label='Reynolds')
+            ax.set_xlabel("time")
             ax.set_ylabel("Re")
 
             # Right axis
             ax2 = ax.twinx()
-            l2, = ax2.plot(steps, palin_vals, linestyle='--', label='PALIN')
+            l2, = ax2.plot(time, palin_vals, linestyle='--', label='PALIN')
             l3 = ax2.axhline(self._target, linewidth=0.5, label=f"target={self._target}")
             ax2.set_ylabel("PALIN (10K*pal/Zkmax²)")
 
@@ -960,7 +960,7 @@ class MainWindow(QMainWindow):
             )
 
             fig.tight_layout()
-            plot_path = os.path.join(folder_path, f"steps_Re_PALIN.png")
+            plot_path = os.path.join(folder_path, f"timeseries_Re_PALIN.png")
             fig.savefig(plot_path)
             plt.close(fig)
 
