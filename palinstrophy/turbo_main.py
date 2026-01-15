@@ -1298,7 +1298,7 @@ class MainWindow(QMainWindow):
 
         return float(self._palin_filt)
 
-    def adapt_visc_pid(self):
+    def adapt_visc(self):
         # Match original behavior:
         deadband = 0.001  # relative band: ±0.1%
         max_frac = 0.01  # max fractional change per update: 1%
@@ -1342,7 +1342,7 @@ class MainWindow(QMainWindow):
         self.sim.re = self.sim.state.Re = Re_eff
         self.sim.state.visc = 1.0 / Re_eff
 
-    def adapt_visc(self):
+    def adapt_visc_old(self):
         epsilon = 0.001
         hi = self._target * (1.0 + epsilon)
         lo = self._target * (1.0 - epsilon)
