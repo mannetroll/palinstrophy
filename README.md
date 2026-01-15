@@ -74,7 +74,9 @@ From the GUI you can:
   - u-velocity, v-velocity, kinetic energy, vorticity
 
 ### Display scaling
-To keep the GUI responsive for large grids, the displayed image is automatically upscaled/downscaled depending on `N`. The window is resized accordingly when you change `N`.
+
+To keep the GUI responsive for large grids, the displayed image is automatically upscaled/downscaled depending on `N`.
+The window is resized accordingly when you change `N`.
 
 ## Installation
 
@@ -115,6 +117,8 @@ Examples:
 ## Enabling GPU with CuPy (CUDA 13)
 
 On a CUDA machine (e.g. RTX 3090):
+
+Download: https://developer.nvidia.com/cuda-downloads
 
 1. Check that the driver/CUDA are available:
 
