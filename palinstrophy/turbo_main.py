@@ -348,6 +348,7 @@ class MainWindow(QMainWindow):
         self._e_prev = 0.0
         self._target = 50.0
         self._palin_filt = 0.0
+        self._palin_filt_1 = 0.0
 
         # --- grain metrics (omega) ---
         self.kmax: Optional[float] = None
@@ -1537,6 +1538,20 @@ class MainWindow(QMainWindow):
         )
         self.status.showMessage(txt)
 
+    def _palin_filter_2nd(self, p_raw: float) -> float:
+        # Low-pass filter on PALIN (2nd order: two cascaded 1st order EMAs)
+        palin_tau = 5.0  # in "calls"
+        alpha = 1.0 / (palin_tau + 1.0)
+
+        if self._palin_filt == 0.0:
+            self._palin_filt_1 = float(p_raw)
+            self._palin_filt = float(p_raw)
+        else:
+            self._palin_filt_1 = float(self._palin_filt_1) + alpha * (float(p_raw) - float(self._palin_filt_1))
+            self._palin_filt = float(self._palin_filt) + alpha * (float(self._palin_filt_1) - float(self._palin_filt))
+
+        return float(self._palin_filt)
+
     def adapt_visc(self):
         # Match original behavior:
         deadband = 0.001  # relative band: ±0.1%
@@ -1551,17 +1566,7 @@ class MainWindow(QMainWindow):
         if p_raw is None:
             return
 
-        # Low-pass filter on PALIN (EMA / 1st order IIR)
-        palin_tau = 5.0  # in "calls"
-        alpha = 1.0 / (palin_tau + 1.0)
-
-        if self._palin_filt == 0.0:
-            self._palin_filt = float(p_raw)
-        else:
-            self._palin_filt = float(self._palin_filt) + alpha * (float(p_raw) - float(self._palin_filt))
-
-        p = float(self._palin_filt)
-
+        p = self._palin_filter_2nd(float(p_raw))
         # relative error
         e = (p - self._target) / self._target
 
