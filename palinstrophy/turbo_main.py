@@ -785,7 +785,7 @@ class MainWindow(QMainWindow):
         r_centers = 0.5 * (r_edges[:-1] + r_edges[1:])
 
         # Plot
-        fig = plt.figure(figsize=(8, 5))
+        fig = plt.figure(figsize=(12, 8))
         ax = fig.add_subplot(1, 1, 1)
         ax.loglog(r_centers[good], esum[good])
         ax.set_ylim(bottom=1)
@@ -929,7 +929,7 @@ class MainWindow(QMainWindow):
             re_vals = np.array([r[2] for r in self._csv_rows], dtype=np.float64)
             palin_vals = np.array([r[6] for r in self._csv_rows], dtype=np.float64)
 
-            fig = plt.figure(figsize=(8, 5))
+            fig = plt.figure(figsize=(12, 8))
             ax = fig.add_subplot(1, 1, 1)
             ax.set_title("Metrics vs time")
 
@@ -947,12 +947,12 @@ class MainWindow(QMainWindow):
             # One legend
             handles: list[Artist] = [l1, l2, l3]
             labels: list[str] = ["Reynolds", "PALIN", f"target={self._target}"]
-            ax.legend(handles, labels, loc="upper left")
+            ax.legend(handles, labels, loc="lower right", framealpha=1)
 
             meta = self.get_meta()
-            ax.text(
-                0.02, 0.02, meta,
-                transform=ax.transAxes,
+            fig.text(
+                0.10, 0.10, meta,
+                transform=fig.transFigure,
                 ha="left", va="bottom",
                 fontsize=10,
                 linespacing=1.5,
@@ -960,7 +960,7 @@ class MainWindow(QMainWindow):
                 bbox=dict(
                     boxstyle="round,pad=0.3",
                     facecolor=(1, 1, 1, 0.9),  # 10% see-through
-                    edgecolor="none",  # no border
+                    edgecolor="none",
                 ),
             )
 
