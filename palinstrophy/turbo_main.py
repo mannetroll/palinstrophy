@@ -1542,9 +1542,9 @@ class MainWindow(QMainWindow):
         max_frac = 0.01  # max fractional change per update: 1%
 
         # "PID" knobs (start like the original)
-        Kp = 0.25
+        Kp = 0.5
         Ki = 0.0
-        Kd = 5.0
+        Kd = 50.0
 
         p = 10000 * self.palinstrophy_over_enstrophy_kmax2
         if p is None:
