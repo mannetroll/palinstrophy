@@ -327,7 +327,7 @@ def _setup_shortcuts(self):
 #   key: ("cpu", NZ, NX) or ("cuda", device_id, NZ, NX)
 #   val: K2 array on the corresponding backend (numpy or cupy)
 _K2_CACHE: dict[tuple, object] = {}
-METRICS_HEADER = ("N","K0","Re","CFL","VISC","STEPS","PALIN","SIG","TIME","MINUTES","FPS")
+CSV_HEADER = ("N", "K0", "Re", "CFL", "VISC", "STEPS", "PALIN", "SIG", "TIME", "MINUTES", "FPS")
 
 class MainWindow(QMainWindow):
     def __init__(self, sim: DnsSimulator, steps: str, update: str, iterations: int) -> None:
@@ -356,8 +356,8 @@ class MainWindow(QMainWindow):
         self.palinstrophy_over_enstrophy_kmax2: Optional[float] = None
 
         # ---- metrics buffer (for CSV dump) ----
-        self._metrics_rows = []
-        self._metrics_header = list(METRICS_HEADER)
+        self._csv_rows = []
+        self._csv_header = list(CSV_HEADER)
 
         # --- central image label ---
         self.image_label = QLabel()
@@ -714,8 +714,8 @@ class MainWindow(QMainWindow):
     def on_reset_clicked(self) -> None:
         self.on_stop_clicked()
         Reynolds = Re_from_N_K0(self.sim.N, self.sim.k0)
-        self._metrics_rows.clear()
-        self._metrics_header = list(METRICS_HEADER)
+        self._csv_rows.clear()
+        self._csv_header = list(CSV_HEADER)
         self.sim.state.visc = 1.0 / Reynolds
         self.sim.re = Reynolds
         self.sim.state.Re = Reynolds
@@ -908,7 +908,7 @@ class MainWindow(QMainWindow):
         # Textbook enstrophy cascade check: E(k) from u,v in Fourier space (expect ~k^-3 range)
         self._save_energy_spectrum_uv(u, v, os.path.join(folder_path, f"energy_spectrum_{suffix}.png"))
         N, K0, Re, CFL, VISC, STEPS, PALIN, SIG, TIME, MINUTES, FPS = self.get_csv_tuple()
-        print("N, K0, Re, CFL, VISC, STEPS, PALIN, SIG, TIME, MINUTES, FPS")
+        print(", ".join(CSV_HEADER))
         print(f"{N}, {K0}, {Re:.4e}, {CFL}, {VISC:.4e}, {STEPS}, {PALIN}, {SIG}, {TIME:.2e}, {MINUTES:.2f}, {FPS:.1f}")
         self.write_plot_csv(folder_path)
         print("[SAVE] Completed.")
@@ -918,16 +918,16 @@ class MainWindow(QMainWindow):
         csv_path = os.path.join(folder_path, f"metrics.csv")
         with open(csv_path, "w", newline="") as f:
             w = csv.writer(f)
-            w.writerow(self._metrics_header)
-            w.writerows(self._metrics_rows)
+            w.writerow(self._csv_header)
+            w.writerows(self._csv_rows)
 
-        if len(self._metrics_rows) >= 2:
+        if len(self._csv_rows) >= 2:
             import matplotlib.pyplot as plt
             from matplotlib.artist import Artist
             # unpack rows: (N, K0, Re, CFL, VISC, STEPS, PALIN, SIG, TIME, MINUTES, FPS)
-            steps = np.array([r[5] for r in self._metrics_rows], dtype=np.int64)
-            re_vals = np.array([r[2] for r in self._metrics_rows], dtype=np.float64)
-            palin_vals = np.array([r[6] for r in self._metrics_rows], dtype=np.float64)
+            steps = np.array([r[5] for r in self._csv_rows], dtype=np.int64)
+            re_vals = np.array([r[2] for r in self._csv_rows], dtype=np.float64)
+            palin_vals = np.array([r[6] for r in self._csv_rows], dtype=np.float64)
 
             fig = plt.figure(figsize=(8, 5))
             ax = fig.add_subplot(1, 1, 1)
@@ -1012,8 +1012,8 @@ class MainWindow(QMainWindow):
         self.sim.re = Reynolds
         self.sim.state.Re = Reynolds
         self.sim.set_N(N)
-        self._metrics_rows.clear()
-        self._metrics_header = list(METRICS_HEADER)
+        self._csv_rows.clear()
+        self._csv_header = list(CSV_HEADER)
 
         # 1) Update the image first
         self._update_image(self.sim.get_frame_pixels())
@@ -1235,7 +1235,7 @@ class MainWindow(QMainWindow):
         # store in memory and write to a CSV file in dump_to_folder() method
         # store in memory (later written to CSV by dump_to_folder)
         row = self.get_csv_tuple()
-        self._metrics_rows.append(row)
+        self._csv_rows.append(row)
 
         k = float(DISPLAY_NORM_K_STD)
         lo = self.mu - k * self.sig
