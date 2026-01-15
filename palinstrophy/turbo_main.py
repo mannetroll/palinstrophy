@@ -346,7 +346,8 @@ class MainWindow(QMainWindow):
 
         self._e_int = 0.0
         self._e_prev = 0.0
-        self.target = 50.0
+        self._target = 50.0
+        self._palin_filt = 0.0
 
         # --- grain metrics (omega) ---
         self.kmax: Optional[float] = None
@@ -1198,12 +1199,12 @@ class MainWindow(QMainWindow):
             # Right axis
             ax2 = ax.twinx()
             l2, = ax2.plot(steps, palin_vals, linestyle='--', label='PALIN')
-            l3 = ax2.axhline(self.target, linewidth=0.5, label=f"target={self.target}")
+            l3 = ax2.axhline(self._target, linewidth=0.5, label=f"target={self._target}")
             ax2.set_ylabel("PALIN (10K*pal/Zkmax²)")
 
             # One legend
             handles: list[Artist] = [l1, l2, l3]
-            labels: list[str] = ["Reynolds", "PALIN", f"target={self.target}"]
+            labels: list[str] = ["Reynolds", "PALIN", f"target={self._target}"]
             ax.legend(handles, labels, loc="upper right")
 
             meta = self.get_meta()
@@ -1536,7 +1537,7 @@ class MainWindow(QMainWindow):
         )
         self.status.showMessage(txt)
 
-    def adapt_visc(self, dt: float = 1.0) -> None:
+    def adapt_visc(self):
         # Match original behavior:
         deadband = 0.001  # relative band: ±0.1%
         max_frac = 0.01  # max fractional change per update: 1%
@@ -1546,12 +1547,23 @@ class MainWindow(QMainWindow):
         Ki = 0.0
         Kd = 1.0
 
-        p = 10000 * self.palinstrophy_over_enstrophy_kmax2
-        if p is None:
+        p_raw = 10000 * self.palinstrophy_over_enstrophy_kmax2
+        if p_raw is None:
             return
 
+        # Low-pass filter on PALIN (EMA / 1st order IIR)
+        palin_tau = 5.0  # in "calls"
+        alpha = 1.0 / (palin_tau + 1.0)
+
+        if self._palin_filt == 0.0:
+            self._palin_filt = float(p_raw)
+        else:
+            self._palin_filt = float(self._palin_filt) + alpha * (float(p_raw) - float(self._palin_filt))
+
+        p = float(self._palin_filt)
+
         # relative error
-        e = (p - self.target) / self.target
+        e = (p - self._target) / self._target
 
         # deadband (same as your hi/lo)
         if abs(e) < deadband:
@@ -1559,8 +1571,8 @@ class MainWindow(QMainWindow):
 
         # integral/derivative
         if Ki != 0.0:
-            self._e_int += e * dt
-        de = (e - self._e_prev) / dt if dt > 0 else 0.0
+            self._e_int += e
+        de = e - self._e_prev
         self._e_prev = e
 
         # controller output in "log space" (multiplicative update)
@@ -1575,7 +1587,7 @@ class MainWindow(QMainWindow):
 
         # Enforce your Re cap by clamping Re directly
         Re0 = Re_from_N_K0(self.sim.N, self.sim.k0)
-        Re_eff = max(Re0 / 10.0, min(10.0 * Re0, float(1.0/nu_new)))
+        Re_eff = max(Re0 / 10.0, min(10.0 * Re0, float(1.0 / nu_new)))
         self.sim.re = self.sim.state.Re = Re_eff
         self.sim.state.visc = 1.0 / Re_eff
 
