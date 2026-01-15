@@ -1298,7 +1298,7 @@ class MainWindow(QMainWindow):
 
         return float(self._palin_filt)
 
-    def adapt_visc(self):
+    def adapt_visc_pid(self):
         # Match original behavior:
         deadband = 0.001  # relative band: ±0.1%
         max_frac = 0.01  # max fractional change per update: 1%
@@ -1341,6 +1341,32 @@ class MainWindow(QMainWindow):
         Re_eff = max(Re0 / 10.0, min(10.0 * Re0, float(1.0 / nu_new)))
         self.sim.re = self.sim.state.Re = Re_eff
         self.sim.state.visc = 1.0 / Re_eff
+
+    def adapt_visc(self):
+        epsilon = 0.001
+        hi = self._target * (1.0 + epsilon)
+        lo = self._target * (1.0 - epsilon)
+
+        p = 10000 * self.palinstrophy_over_enstrophy_kmax2
+        if p is None:
+            return
+
+        nu = float(self.sim.state.visc)
+        if p > hi:
+            nu *= 1.0 + epsilon
+        elif p < lo:
+            nu *= 1.0 - epsilon
+
+        self.sim.state.visc = float(nu)
+
+        Re_eff = 1.0 / float(nu)
+        ReMax = 10 * Re_from_N_K0(self.sim.N, self.sim.k0)
+        if Re_eff > ReMax:
+            Re_eff = ReMax
+
+        self.sim.re = float(Re_eff)
+        self.sim.state.Re = float(self.sim.re)
+        self.sim.state.visc = 1.0 / float(Re_eff)
 
     # ------------------------------------------------------------------
     def keyPressEvent(self, event) -> None:
