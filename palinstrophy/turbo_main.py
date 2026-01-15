@@ -425,7 +425,7 @@ class MainWindow(QMainWindow):
         self.re_edit = QLineEdit()
         self.re_edit.setToolTip("Reynolds Number (Re)")
         self.re_edit.setReadOnly(True)
-        self.re_edit.setFixedWidth(100)
+        self.re_edit.setFixedWidth(120)
         self.re_edit.setText(str(self.sim.re))
 
         # K0 selector
