@@ -931,7 +931,7 @@ class MainWindow(QMainWindow):
 
             fig = plt.figure(figsize=(8, 5))
             ax = fig.add_subplot(1, 1, 1)
-            ax.set_title("Metrics vs STEPS")
+            ax.set_title("Metrics vs time")
 
             # Left axis
             l1, = ax.plot(time, re_vals, color='black', label='Reynolds')
@@ -956,7 +956,12 @@ class MainWindow(QMainWindow):
                 ha="left", va="bottom",
                 fontsize=10,
                 linespacing=1.5,
-                color="black",
+                color="black",  # text 100%
+                bbox=dict(
+                    boxstyle="round,pad=0.3",
+                    facecolor=(1, 1, 1, 0.9),  # 10% see-through
+                    edgecolor="none",  # no border
+                ),
             )
 
             fig.tight_layout()
