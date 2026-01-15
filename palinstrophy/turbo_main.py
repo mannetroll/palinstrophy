@@ -1100,6 +1100,7 @@ class MainWindow(QMainWindow):
             f"N={self.sim.N}\n"
             f"K0={self.sim.k0:g}\n"
             f"Re={self.sim.re:,.0f}\n"
+            f"CFL={self.sim.cfl:.2f}\n"
             f"visc={float(self.sim.state.visc):.3g}\n"
             f"T={float(self.sim.get_time()):.6g}\n"
             f"IT={int(self.sim.get_iteration())}\n"
