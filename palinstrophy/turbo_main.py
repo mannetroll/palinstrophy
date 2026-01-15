@@ -1294,6 +1294,10 @@ class MainWindow(QMainWindow):
         return float(self._palin_filt)
 
     def adapt_visc(self):
+        # skip initial palin spikes
+        if self.sim.get_iteration() < 10000:
+            return
+
         # Match original behavior:
         deadband = 0.001  # relative band: ±0.1%
         max_frac = 0.01  # max fractional change per update: 1%
