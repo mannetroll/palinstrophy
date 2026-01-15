@@ -947,7 +947,7 @@ class MainWindow(QMainWindow):
             # One legend
             handles: list[Artist] = [l1, l2, l3]
             labels: list[str] = ["Reynolds", "PALIN", f"target={self._target}"]
-            ax.legend(handles, labels, loc="upper right")
+            ax.legend(handles, labels, loc="upper left")
 
             meta = self.get_meta()
             ax.text(
