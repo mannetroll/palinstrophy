@@ -843,7 +843,7 @@ class MainWindow(QMainWindow):
             f"visc={float(self.sim.state.visc):.3g}\n"
             f"T={float(self.sim.get_time()):.6g}\n"
             f"IT={int(self.sim.get_iteration())}\n"
-            f"Update={int(self.update)}\n"
+            f"Update={int(self._update_intervall)}\n"
             f"σ={int(self.sig)}\n"
             f"10K*pal/Zkmax²={(10000 * self.palinstrophy_over_enstrophy_kmax2):.1f}\n"
             f"minutes={minutes:.2f}\n"
