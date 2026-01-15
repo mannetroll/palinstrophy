@@ -15,12 +15,14 @@ It supports:
 $ curl -LsSf https://astral.sh/uv/install.sh | sh
 $ uv cache clean mannetroll-palinstrophy
 $ uv run --python 3.13 --with mannetroll-palinstrophy==0.1.0 turbulence
+$ uvx --python 3.13 --from mannetroll-palinstrophy==0.1.0 turbulence
 ```
 
 ## One-liner GPU/CuPy (Windows or Linux with CUDA)
 
 ```
 $ uv run --python 3.13 --with mannetroll-palinstrophy[cuda]==0.1.0 turbulence
+$ uvx --python 3.13 --from mannetroll-palinstrophy[cuda]==0.1.0 turbulence
 ```
 
 
