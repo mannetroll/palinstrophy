@@ -189,11 +189,11 @@ For a terminal-only summary:
     $ scalene --cli --cpu -m palinstrophy.turbo_simulator 512 10000 10 201 0.75 cpu
     $ scalene --cli --cpu -m palinstrophy.turbo_main 512 15 10000 1E5 0.1 auto 10 201
 
-## The power spectrum of the vorticity field
+## The power spectrum of the energy field
 
-The **radially averaged 2D FFT power spectrum** of the vorticity field `omega` on **log–log axes**.  
-The x-axis is the **normalized radial wavenumber** (k/k_Nyquist), and the y-axis is the **mean FFT power** ω(k)² averaged within radial bins.  
-A **vertical line** marks the scale K0, and a **dashed reference slope** k⁻³ is drawn to compare against an expected inertial-range power-law behavior.  
+The radially averaged (isotropic) 2D FFT energy spectrum E(k) computed from the velocity fields u and v on log–log axes.
+The x-axis is the normalized radial wavenumber (k/k_Nyquist), and the y-axis is the shell-summed spectral energy ∑(|û(k)|² + |v̂(k)|²) accumulated within radial wavenumber bins (DC removed and excluded).  
+A dashed reference slope k⁻³ is drawn (anchored at the spectral peak) to compare against the expected 2D enstrophy-cascade inertial-range power-law behavior.
 
 ![spectrum](https://raw.githubusercontent.com/mannetroll/palinstrophy/v0.1.1/spectrum.png)
 
