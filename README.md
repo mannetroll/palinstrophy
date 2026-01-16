@@ -14,15 +14,15 @@ It supports:
 ```
 $ curl -LsSf https://astral.sh/uv/install.sh | sh
 $ uv cache clean mannetroll-palinstrophy
-$ uv run --python 3.14 --with mannetroll-palinstrophy==0.1.1 turbulence
-$ uvx --from mannetroll-palinstrophy==0.1.1 turbulence
+$ uv run --python 3.13 --with mannetroll-palinstrophy==0.1.2 turbulence
+$ uvx --python 3.13 --from mannetroll-palinstrophy==0.1.2 turbulence
 ```
 
 ## One-liner GPU/CuPy (Windows or Linux with CUDA)
 
 ```
-$ uv run --python 3.14 --with mannetroll-palinstrophy[cuda]==0.1.1 turbulence
-$ uvx --from mannetroll-palinstrophy[cuda]==0.1.1 turbulence
+$ uv run --python 3.13 --with mannetroll-palinstrophy[cuda]==0.1.2 turbulence
+$ uvx --python 3.13 --from mannetroll-palinstrophy[cuda]==0.1.2 turbulence
 ```
 
 
@@ -90,7 +90,7 @@ From the project root:
 
 ## The DNS with SciPy (1024 x 1024)
 
-![SciPy](https://raw.githubusercontent.com/mannetroll/palinstrophy/v0.1.1/N1024.png)
+![SciPy](https://raw.githubusercontent.com/mannetroll/palinstrophy/v0.1.2/N1024.png)
 
 ### Full CLI
 
@@ -145,7 +145,7 @@ Or let the backend auto-detect:
 
 ## The DNS with CuPy (8192 x 8192) Dedicated GPU memory 18/24 GB
 
-![CuPy](https://raw.githubusercontent.com/mannetroll/palinstrophy/v0.1.1/N8192.png)
+![CuPy](https://raw.githubusercontent.com/mannetroll/palinstrophy/v0.1.2/N8192.png)
 
 
 ## Profiling
@@ -195,7 +195,7 @@ The radially averaged (isotropic) 2D FFT energy spectrum E(k) computed from the 
 The x-axis is the normalized radial wavenumber (k/k_Nyquist), and the y-axis is the shell-summed spectral energy ∑(|û(k)|² + |v̂(k)|²) accumulated within radial wavenumber bins (DC removed and excluded).  
 A dashed reference slope k⁻³ is drawn (anchored at the spectral peak) to compare against the expected 2D enstrophy-cascade inertial-range power-law behavior.
 
-![spectrum](https://raw.githubusercontent.com/mannetroll/palinstrophy/v0.1.1/spectrum.png)
+![spectrum](https://raw.githubusercontent.com/mannetroll/palinstrophy/v0.1.2/spectrum.png)
 
 ## FPS Comparison Plot (DNS FPS vs Grid Size and Code)
 
@@ -208,7 +208,7 @@ A dashed reference slope k⁻³ is drawn (anchored at the spectral peak) to comp
 - **NumPy (Python)** (`.py`) — Apple M1 *(single thread)*  
 - **SciPy (Python)** (`.py`) — Apple M1 *(4 workers)*  
 
-![compare](https://raw.githubusercontent.com/mannetroll/palinstrophy/v0.1.1/compare.png)
+![compare](https://raw.githubusercontent.com/mannetroll/palinstrophy/v0.1.2/compare.png)
 
 
 ## License
