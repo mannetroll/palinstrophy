@@ -55,6 +55,9 @@ X1g, X2g = np.meshgrid(x1g, x2g)
 Yg = a * X1g + b * X2g + c
 ax.plot_surface(X1g, X2g, Yg, alpha=0.35)
 
+Yg2 = 1.066240 * X1g - 0.083911 * X2g + 1.286396
+ax.plot_surface(X1g, X2g, Yg2, alpha=0.35)
+
 ax.set_xlabel("log10(N)")
 ax.set_ylabel("log10(K0)")
 ax.set_zlabel("log10(Re)")
