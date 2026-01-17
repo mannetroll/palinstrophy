@@ -1338,35 +1338,10 @@ class MainWindow(QMainWindow):
 
         # Enforce your Re cap by clamping Re directly
         Re0 = Re_from_N_K0(self.sim.N, self.sim.k0)
-        Re_eff = max(Re0 / 100.0, min(100.0 * Re0, float(1.0 / nu_new)))
+        factor = 1000.0
+        Re_eff = max(Re0 / factor, min(factor * Re0, float(1.0 / nu_new)))
         self.sim.re = self.sim.state.Re = Re_eff
         self.sim.state.visc = 1.0 / Re_eff
-
-    def adapt_visc_old(self):
-        epsilon = 0.001
-        hi = self._target * (1.0 + epsilon)
-        lo = self._target * (1.0 - epsilon)
-
-        p = 10000 * self.palinstrophy_over_enstrophy_kmax2
-        if p is None:
-            return
-
-        nu = float(self.sim.state.visc)
-        if p > hi:
-            nu *= 1.0 + epsilon
-        elif p < lo:
-            nu *= 1.0 - epsilon
-
-        self.sim.state.visc = float(nu)
-
-        Re_eff = 1.0 / float(nu)
-        ReMax = 10 * Re_from_N_K0(self.sim.N, self.sim.k0)
-        if Re_eff > ReMax:
-            Re_eff = ReMax
-
-        self.sim.re = float(Re_eff)
-        self.sim.state.Re = float(self.sim.re)
-        self.sim.state.visc = 1.0 / float(Re_eff)
 
     # ------------------------------------------------------------------
     def keyPressEvent(self, event) -> None:
