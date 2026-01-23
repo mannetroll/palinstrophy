@@ -1338,7 +1338,7 @@ class MainWindow(QMainWindow):
 
         # Enforce your Re cap by clamping Re directly
         Re0 = Re_from_N_K0(self.sim.N, self.sim.k0)
-        factor = 1000.0
+        factor = 100.0
         Re_eff = max(Re0 / factor, min(factor * Re0, float(1.0 / nu_new)))
         self.sim.re = self.sim.state.Re = Re_eff
         self.sim.state.visc = 1.0 / Re_eff
