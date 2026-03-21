@@ -8,6 +8,7 @@ Usage:
     uv run python -m palinstrophy.turbo_postprocess
 """
 
+import math
 import sys
 import os
 import colorsys
@@ -361,13 +362,44 @@ class PostProcessWindow(QMainWindow):
         self._refresh_image()
 
     # ------------------------------------------------------------------
+    @staticmethod
+    def _display_scale(N: int) -> float:
+        screen_h = 1024
+        ui_margin = 320
+        max_h = max(128, screen_h - ui_margin)
+
+        if N >= max_h:
+            down = int(math.ceil(N / max_h))
+            return float(down)
+
+        up = int(math.floor(max_h / N))
+        if up < 1:
+            up = 1
+        return 1.0 / float(up)
+
+    @staticmethod
+    def _upscale_downscale_u8(pix: np.ndarray) -> np.ndarray:
+        N = pix.shape[0]
+        scale = PostProcessWindow._display_scale(N)
+
+        if scale == 1.0:
+            return np.ascontiguousarray(pix)
+
+        if scale < 1.0:
+            up = int(round(1.0 / scale))
+            return np.ascontiguousarray(np.repeat(np.repeat(pix, up, axis=0), up, axis=1))
+
+        s = int(scale)
+        return np.ascontiguousarray(pix[::s, ::s])
+
+    # ------------------------------------------------------------------
     def _refresh_image(self) -> None:
         label = self.variable_combo.currentText()
         arr = self._pgm_data.get(label)
         if arr is None:
             return
 
-        pixels = np.ascontiguousarray(arr)
+        pixels = self._upscale_downscale_u8(np.ascontiguousarray(arr))
         h, w = pixels.shape
 
         qimg = QImage(
@@ -382,7 +414,7 @@ class PostProcessWindow(QMainWindow):
         pix = QPixmap.fromImage(qimg, Qt.ImageConversionFlag.NoFormatConversion)
         self.image_label.setPixmap(pix)
 
-        # Resize window to fit the image (same logic as turbo_main.py)
+        # Resize window to fit the image
         new_w = pix.width() + 40
         new_h = pix.height() + 120
         self.setMinimumSize(0, 0)
