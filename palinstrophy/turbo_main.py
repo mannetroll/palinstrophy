@@ -897,6 +897,7 @@ class MainWindow(QMainWindow):
         dlg.destroyed.connect(self._on_spectrum_dlg_destroyed)
         self._refresh_spectrum()
         dlg.show()
+        self._position_modals()
 
     def _on_spectrum_dlg_destroyed(self) -> None:
         self._spectrum_dlg = None
@@ -1312,6 +1313,33 @@ class MainWindow(QMainWindow):
         dlg.destroyed.connect(self._on_metrics_dlg_destroyed)
         self._refresh_metrics()
         dlg.show()
+        self._position_modals()
+
+    def _position_modals(self) -> None:
+        """Move main window to left 1/4, place modal dialogs just right of it."""
+        screen = QApplication.primaryScreen().availableGeometry()
+        # Move main window so its center is at 1/4 of screen width
+        g = self.geometry()
+        g.moveCenter(screen.center())
+        target_cx = screen.left() + screen.width() // 4
+        g.moveLeft(target_cx - g.width() // 2)
+        # keep vertical centering
+        self.setGeometry(g)
+
+        # x position for modals: just right of main window + 20px
+        modal_x = self.geometry().right() + 20
+
+        # image midpoint in screen coordinates
+        img_global = self.image_label.mapToGlobal(self.image_label.rect().center())
+        img_mid_y = img_global.y()
+
+        # spectrum: bottom edge at image midpoint
+        if hasattr(self, '_spectrum_dlg') and self._spectrum_dlg is not None and self._spectrum_dlg.isVisible():
+            self._spectrum_dlg.move(modal_x, img_mid_y - self._spectrum_dlg.height())
+
+        # metrics: top edge just below image midpoint
+        if hasattr(self, '_metrics_dlg') and self._metrics_dlg is not None and self._metrics_dlg.isVisible():
+            self._metrics_dlg.move(modal_x, img_mid_y + 40)
 
     def _on_metrics_dlg_destroyed(self) -> None:
         self._metrics_dlg = None
