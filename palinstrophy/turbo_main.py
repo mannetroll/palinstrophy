@@ -1585,49 +1585,57 @@ class MainWindow(QMainWindow):
         Uses S.om2 (rFFT in x, full FFT in z) and S.step3_K2 (k^2 on the same grid),
         so we avoid ω→physical and a full FFT per rendered frame.
 
-        The rFFT half-spectrum is expanded via weights:
-          • kx=0 and kx=NX/2 columns counted once
-          • all interior kx columns counted twice (conjugate symmetry)
+        GPU-optimised: a precomputed rFFT weight row avoids per-column
+        slicing, and all reductions run on-device with a single host
+        transfer of the three needed scalars.
         """
         S = self.sim.state
+        xp = S.xp
 
-        band = S.om2
-        P = band.real * band.real + band.imag * band.imag  # |W|^2 on the (NZ, NX_half) rFFT grid
-        K2 = S.step3_K2  # k^2 on the same grid
+        band = S.om2                                       # (NZ, NX_half), complex64
+        K2 = S.step3_K2                                    # (NZ, NX_half), float32
 
-        NX_half = int(P.shape[1])
+        NX_half = int(band.shape[1])
 
-        if NX_half == 1:
-            total = self._scalar_item(P.sum() - P[0, 0])
-            if total <= 0.0:
-                return 0.0
+        # --- lazily build & cache the rFFT symmetry weight row ----------
+        #   [1, 2, 2, …, 2, 1]  for NX_half > 2
+        #   [1, 1]               for NX_half == 2
+        #   [1]                  for NX_half == 1
+        w = getattr(S, '_pal_rfft_w', None)
+        if w is None or w.shape[0] != NX_half:
+            w_np = np.empty(NX_half, dtype=np.float32)
+            w_np[:] = 2.0
+            w_np[0] = 1.0
+            if NX_half > 1:
+                w_np[-1] = 1.0
+            w = xp.asarray(w_np)            # (NX_half,)  — on device if GPU
+            S._pal_rfft_w = w
 
-            kmax2 = self._scalar_item(K2.max())
-            if kmax2 <= 0.0:
-                return 0.0
+        # |ω̂|² on the rFFT half-grid  (one fused kernel on GPU)
+        P = band.real * band.real + band.imag * band.imag   # float32 (NZ, NX_half)
 
-            palinstrophy = self._scalar_item((K2 * P).sum())
-            return palinstrophy / (total * kmax2)
+        # Weighted power:  WP[z,k] = w[k] * P[z,k]
+        WP = w * P                                          # broadcast (NX_half,) over rows
 
-        # Full-spectrum weighted sums from the rFFT half-spectrum
-        edge = P[:, 0].sum() + P[:, -1].sum()
-        mid = P[:, 1:-1].sum() if NX_half > 2 else 0.0
-        total_full = edge + 2.0 * mid
+        # Three device reductions → stack into one small array, single transfer
+        total_full = WP.sum()               # scalar on device
+        k00 = P[0, 0]                       # scalar on device (k=0 mode)
+        kmax2_dev = K2.max()                # scalar on device
+        pal_dev = (w * K2 * P).sum()        # palinstrophy (weighted) on device
 
-        # Exclude k=0 mode (mean ω)
-        total = self._scalar_item(total_full - P[0, 0])
+        # One host transfer of all four scalars
+        buf = xp.stack([total_full, k00, kmax2_dev, pal_dev])
+        if hasattr(buf, 'get'):
+            vals = buf.get()                # CuPy → NumPy
+        else:
+            vals = np.asarray(buf)
+        total = float(vals[0] - vals[1])
         if total <= 0.0:
             return 0.0
-
-        kmax2 = self._scalar_item(K2.max())
+        kmax2 = float(vals[2])
         if kmax2 <= 0.0:
             return 0.0
-
-        edge_p = (K2[:, 0] * P[:, 0]).sum() + (K2[:, -1] * P[:, -1]).sum()
-        mid_p = (K2[:, 1:-1] * P[:, 1:-1]).sum() if NX_half > 2 else 0.0
-        pal_full = edge_p + 2.0 * mid_p
-
-        palinstrophy = self._scalar_item(pal_full)
+        palinstrophy = float(vals[3])
         return palinstrophy / (total * kmax2)
 
     def _update_image(self, pixels: np.ndarray) -> None:
