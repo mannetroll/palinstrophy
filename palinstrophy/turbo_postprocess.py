@@ -13,7 +13,7 @@ import sys
 import os
 import colorsys
 import numpy as np
-from PySide6.QtCore import Qt, QStandardPaths
+from PySide6.QtCore import Qt, QStandardPaths, QTimer
 from PySide6.QtGui import QImage, QPixmap, qRgb
 from PySide6.QtWidgets import (
     QApplication,
@@ -451,6 +451,7 @@ def main():
     app = QApplication(sys.argv)
     win = PostProcessWindow()
     win.show()
+    QTimer.singleShot(0, win.on_folder_clicked)
     sys.exit(app.exec())
 
 
