@@ -639,13 +639,13 @@ class PostProcessWindow(QMainWindow):
             self._custom_colors_dialog = CustomColorsDialog(self)
             self._custom_colors_dialog.lut_changed.connect(self._on_custom_lut_changed)
         dlg = self._custom_colors_dialog
-        # Move main window ~1/3 to the left so the dialog fits on the right
+        # Move main window ~1/4 to the left so the dialog fits on the right
         screen = QApplication.primaryScreen().availableGeometry()
-        g = self.geometry()
-        shifted_x = max(screen.left(), g.x() - screen.width() // 3)
-        self.move(shifted_x, g.y())
+        pos = self.pos()  # frame top-left (move() also targets the frame)
+        shifted_x = max(screen.left(), pos.x() - screen.width() // 4)
+        self.move(shifted_x, pos.y())
         # Position dialog to the right of the (shifted) main window
-        g = self.geometry()
+        g = self.frameGeometry()
         dlg.move(g.right() + 10, g.top())
         dlg.show()
         dlg.raise_()
