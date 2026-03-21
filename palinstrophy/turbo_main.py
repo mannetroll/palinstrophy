@@ -1224,6 +1224,10 @@ class MainWindow(QMainWindow):
         g.moveCenter(screen.center())
         self.setGeometry(g)
 
+        # Re-position modal dialogs if any are open
+        if self._any_modal_active():
+            self._position_modals()
+
         print(f"[LOAD] Restored case from {folder_path}: N={N}, Re={Re:.4e}, K0={K0}, t={t:.6e}, it={it}")
 
     def _make_metrics_fig(self, modal: bool = False):
@@ -1314,6 +1318,14 @@ class MainWindow(QMainWindow):
         self._refresh_metrics()
         dlg.show()
         self._position_modals()
+
+    def _any_modal_active(self) -> bool:
+        """Return True if any modal dialog (spectrum or metrics) is currently visible."""
+        if hasattr(self, '_spectrum_dlg') and self._spectrum_dlg is not None and self._spectrum_dlg.isVisible():
+            return True
+        if hasattr(self, '_metrics_dlg') and self._metrics_dlg is not None and self._metrics_dlg.isVisible():
+            return True
+        return False
 
     def _position_modals(self) -> None:
         """Move main window to left 1/4, place modal dialogs just right of it."""
@@ -1445,6 +1457,10 @@ class MainWindow(QMainWindow):
         self._build_layout()
         self._sim_start_time = time.time()
         self._sim_start_iter = self.sim.get_iteration()
+
+        # Re-position modal dialogs if any are open
+        if self._any_modal_active():
+            self._position_modals()
 
     def on_k0_changed(self, value: str) -> None:
         self.sim.k0 = float(value)
