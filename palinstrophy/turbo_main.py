@@ -407,6 +407,20 @@ class MainWindow(QMainWindow):
         self.folder_button.setFixedSize(28, 28)
         self.folder_button.setIconSize(QSize(14, 14))
 
+        # Load case button
+        self.load_button = QPushButton()
+        self.load_button.setIcon(style.standardIcon(QStyle.StandardPixmap.SP_DirOpenIcon))
+        self.load_button.setToolTip("Load case from parquet restart")
+        self.load_button.setFixedSize(28, 28)
+        self.load_button.setIconSize(QSize(14, 14))
+
+        # Spectrum button
+        self.spectrum_button = QPushButton()
+        self.spectrum_button.setIcon(style.standardIcon(QStyle.StandardPixmap.SP_FileDialogInfoView))
+        self.spectrum_button.setToolTip("Show energy spectrum")
+        self.spectrum_button.setFixedSize(28, 28)
+        self.spectrum_button.setIconSize(QSize(14, 14))
+
         # Variable selector
         self.variable_combo = QComboBox()
         self.variable_combo.setToolTip("V: Variable")
@@ -498,6 +512,8 @@ class MainWindow(QMainWindow):
         self.reset_button.clicked.connect(self.on_reset_clicked)  # type: ignore[attr-defined]
         self.save_button.clicked.connect(self.on_save_clicked)  # type: ignore[attr-defined]
         self.folder_button.clicked.connect(self.on_folder_clicked)  # type: ignore[attr-defined]
+        self.load_button.clicked.connect(self.on_load_clicked)  # type: ignore[attr-defined]
+        self.spectrum_button.clicked.connect(self.on_spectrum_clicked)  # type: ignore[attr-defined]
         self.variable_combo.currentIndexChanged.connect(self.on_variable_changed)  # type: ignore[attr-defined]
         self.cmap_combo.currentTextChanged.connect(self.on_cmap_changed)  # type: ignore[attr-defined]
         self.n_combo.currentTextChanged.connect(self.on_n_changed)  # type: ignore[attr-defined]
@@ -567,6 +583,8 @@ class MainWindow(QMainWindow):
         row1.addWidget(self.reset_button)
         row1.addWidget(self.save_button)
         row1.addWidget(self.folder_button)
+        row1.addWidget(self.load_button)
+        row1.addWidget(self.spectrum_button)
         row1.addSpacing(10)
         row1.addWidget(self.n_combo)
         row1.addWidget(self.variable_combo)
@@ -726,24 +744,21 @@ class MainWindow(QMainWindow):
         self._update_status(self.sim.get_time(), self.sim.get_iteration(), None)
         self.on_start_clicked()
 
-    def _save_energy_spectrum_uv(self, u: np.ndarray, v: np.ndarray, out_png: str) -> None:
+    def _make_energy_spectrum_fig(self, u: np.ndarray, v: np.ndarray):
         """
-        Save a log-log isotropic kinetic energy spectrum estimate E(k) from u,v.
+        Build a log-log isotropic kinetic energy spectrum figure E(k) from u,v.
 
         This is the textbook definition in Fourier space:
             E(k) ∝ sum_{|k| in shell} (|û(k)|^2 + |v̂(k)|^2)
 
-        Notes:
-        - This uses a simple shell-sum over radially binned wavenumbers.
-        - X-axis uses normalized radius k / k_Nyquist where k_Nyquist = N/2 (axis Nyquist).
-        - Scaling constants do not matter for the slope; this is for exponent inspection.
+        Returns a matplotlib Figure, or None if inputs are invalid.
         """
         import matplotlib.pyplot as plt
 
         u = np.asarray(u, dtype=np.float64)
         v = np.asarray(v, dtype=np.float64)
         if u.ndim != 2 or v.ndim != 2 or u.shape != v.shape:
-            return
+            return None
 
         NZ, NX = u.shape
 
@@ -827,8 +842,49 @@ class MainWindow(QMainWindow):
         )
 
         fig.tight_layout()
+        return fig
+
+    def _save_energy_spectrum_uv(self, u: np.ndarray, v: np.ndarray, out_png: str) -> None:
+        """Save the energy spectrum figure to a PNG file."""
+        import matplotlib.pyplot as plt
+        fig = self._make_energy_spectrum_fig(u, v)
+        if fig is None:
+            return
         fig.savefig(out_png)
         plt.close(fig)
+
+    def _show_energy_spectrum_uv(self) -> None:
+        """Render the energy spectrum to a modal dialog (no file write)."""
+        import matplotlib.pyplot as plt
+        from matplotlib.backends.backend_agg import FigureCanvasAgg
+        from PySide6.QtWidgets import QDialog, QVBoxLayout as QVBox
+        from PySide6.QtGui import QImage as QImg, QPixmap as QPix
+
+        u = self._get_full_field("u")
+        v = self._get_full_field("v")
+        fig = self._make_energy_spectrum_fig(u, v)
+        if fig is None:
+            return
+
+        canvas = FigureCanvasAgg(fig)
+        canvas.draw()
+        buf = canvas.buffer_rgba()
+        w, h = canvas.get_width_height()
+        qimg = QImg(bytes(buf), w, h, 4 * w, QImg.Format.Format_RGBA8888)
+        pixmap = QPix.fromImage(qimg)
+        plt.close(fig)
+
+        dlg = QDialog(self)
+        dlg.setWindowTitle("Energy Spectrum")
+        lay = QVBox(dlg)
+        lbl = QLabel()
+        lbl.setPixmap(pixmap)
+        lay.addWidget(lbl)
+        dlg.resize(pixmap.size())
+        dlg.exec()
+
+    def on_spectrum_clicked(self) -> None:
+        self._show_energy_spectrum_uv()
 
     def get_meta(self) -> str:
         # Metadata annotation (keep it short + useful)
@@ -972,6 +1028,158 @@ class MainWindow(QMainWindow):
         pq.write_table(shapes, os.path.join(folder_path, "restart_shapes.parquet"), compression="zstd")
 
         print(f"[SAVE] Restart parquet files written to {folder_path}")
+
+    # ------------------------------------------------------------------
+    #  Load restart from parquet
+    # ------------------------------------------------------------------
+    def on_load_clicked(self) -> None:
+        was_running = self.timer.isActive()
+        if was_running:
+            self.timer.stop()
+
+        desktop = QStandardPaths.writableLocation(
+            QStandardPaths.StandardLocation.DesktopLocation
+        )
+        dlg = QFileDialog(self)
+        dlg.setWindowTitle("Load case (select folder with restart parquet files)")
+        dlg.setFileMode(QFileDialog.FileMode.Directory)
+        dlg.setOption(QFileDialog.Option.ShowDirsOnly, True)
+        dlg.setOption(QFileDialog.Option.DontUseNativeDialog, True)
+        dlg.setDirectory(desktop)
+        for lineedit in dlg.findChildren(QLineEdit):
+            lineedit.setText(".")  # type: ignore[attr-defined]
+
+        if dlg.exec():
+            folder_path = dlg.selectedFiles()[0]
+        else:
+            if was_running:
+                self.timer.start()
+            return
+
+        self._load_restart_parquet(folder_path)
+
+    def _load_restart_parquet(self, folder_path: str):
+        import pyarrow.parquet as pq
+        import ast
+
+        meta_path = os.path.join(folder_path, "restart_meta.parquet")
+        if not os.path.isfile(meta_path):
+            print(f"[LOAD] No restart_meta.parquet in {folder_path}")
+            return
+
+        # 1) read scalar metadata
+        meta = pq.read_table(meta_path).to_pydict()
+        N = int(meta["Nbase"][0])
+        Re = float(meta["Re"][0])
+        K0 = float(meta["K0"][0])
+        visc = float(meta["visc"][0])
+        cflnum = float(meta["cflnum"][0])
+        seed_init = int(meta["seed_init"][0])
+        t = float(meta["t"][0])
+        dt = float(meta["dt"][0])
+        cn = float(meta["cn"][0])
+        cnm1 = float(meta["cnm1"][0])
+        it = int(meta["it"][0])
+
+        # 2) read shapes
+        shapes = pq.read_table(os.path.join(folder_path, "restart_shapes.parquet")).to_pydict()
+        uc_shape = ast.literal_eval(shapes["uc_shape"][0])
+        om2_shape = ast.literal_eval(shapes["om2_shape"][0])
+        fnm1_shape = ast.literal_eval(shapes["fnm1_shape"][0])
+
+        # 3) read complex arrays
+        def _read_complex(name, shape):
+            tbl = pq.read_table(os.path.join(folder_path, name)).to_pydict()
+            real = np.array(tbl["real"], dtype=np.float32)
+            imag = np.array(tbl["imag"], dtype=np.float32)
+            return (real + 1j * imag).reshape(shape)
+
+        uc_data = _read_complex("restart_uc.parquet", uc_shape)
+        om2_data = _read_complex("restart_om2.parquet", om2_shape)
+        fnm1_data = _read_complex("restart_fnm1.parquet", fnm1_shape)
+
+        # 4) recreate state with matching N (this does full init)
+        self.sim.re = Re
+        self.sim.k0 = K0
+        self.sim.cfl = cflnum
+        self.sim.set_N(N)
+
+        S = self.sim.state
+        xp = S.xp
+
+        # 5) overwrite spectral arrays
+        if S.backend == "gpu":
+            S.uc = xp.asarray(uc_data)
+            S.om2 = xp.asarray(om2_data)
+            S.fnm1 = xp.asarray(fnm1_data)
+        else:
+            S.uc = uc_data
+            S.om2 = om2_data
+            S.fnm1 = fnm1_data
+
+        # 6) restore scalars
+        S.Re = Re
+        S.K0 = K0
+        S.visc = visc
+        S.cflnum = cflnum
+        S.seed_init = seed_init
+        S.t = t
+        S.dt = dt
+        S.cn = cn
+        S.cnm1 = cnm1
+        S.it = it
+
+        self.sim.re = Re
+        self.sim.t = t
+        self.sim.dt = dt
+        self.sim.cn = cn
+        self.sim.iteration = it
+
+        # 7) rebuild physical fields from spectral
+        from palinstrophy import turbo_simulator as dns_all
+        import scipy.fft as spfft
+        if S.backend == "cpu":
+            with spfft.set_workers(self.sim.fft_workers):
+                dns_all.dns_step2a(S)
+        else:
+            dns_all.dns_step2a(S)
+
+        # 8) update UI combos to reflect loaded state
+        self.n_combo.blockSignals(True)
+        self.n_combo.setCurrentText(str(N))
+        self.n_combo.blockSignals(False)
+
+        self.k0_combo.blockSignals(True)
+        self.k0_combo.setCurrentText(str(int(K0)))
+        self.k0_combo.blockSignals(False)
+
+        self.cfl_combo.blockSignals(True)
+        self.cfl_combo.setCurrentText(str(cflnum))
+        self.cfl_combo.blockSignals(False)
+
+        self.re_edit.setText(f"{Re:.4e}")
+
+        # 9) rebuild layout and refresh display
+        self._build_layout()
+        self._csv_rows.clear()
+        self._csv_header = list(CSV_HEADER)
+        self._sim_start_time = time.time()
+        self._sim_start_iter = it
+        self._update_image(self.sim.get_frame_pixels())
+        self._update_status(t, it, None)
+
+        # resize window for new N
+        new_w = self.image_label.pixmap().width() + 40
+        new_h = self.image_label.pixmap().height() + 120
+        self.setMinimumSize(0, 0)
+        self.setMaximumSize(16777215, 16777215)
+        self.resize(new_w, new_h)
+        screen = QApplication.primaryScreen().availableGeometry()
+        g = self.geometry()
+        g.moveCenter(screen.center())
+        self.setGeometry(g)
+
+        print(f"[LOAD] Restored case from {folder_path}: N={N}, Re={Re:.4e}, K0={K0}, t={t:.6e}, it={it}")
 
     def write_plot_csv(self, folder_path: str):
         # ---- write metrics CSV ----
