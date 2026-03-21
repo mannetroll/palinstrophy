@@ -1,13 +1,14 @@
 # turbo_main.py
-import math
 import colorsys
-import os
-import sys
-import time
 import csv
 import datetime as _dt
-from typing import Optional, Literal, cast
+import math
+import os
 from pathlib import Path
+import sys
+import time
+from typing import Optional, Literal, cast
+
 from PySide6.QtCore import QSize, QTimer, Qt, QStandardPaths
 from PySide6.QtGui import QIcon, QImage, QPixmap, QFontDatabase, qRgb, QKeySequence, QShortcut
 from PySide6.QtWidgets import (
@@ -31,6 +32,7 @@ from palinstrophy import turbo_simulator as dns_all
 from palinstrophy.turbo_wrapper import DnsSimulator
 
 FUSION = "Fusion"
+
 
 # Simple helper: build a 256x3 uint8 LUT from color stops in 0..1
 # stops: list of (pos, (r,g,b)) with pos in [0,1], r,g,b in [0,255]
@@ -282,7 +284,7 @@ DEFAULT_CMAP_NAME = "Inferno"
 # Display normalization, reduces flicker when the underlying dynamic range
 # changes quickly.
 # ----------------------------------------------------------------------
-DISPLAY_NORM_K_STD = 2.5          # map [mu - k*sigma, mu + k*sigma] -> [0,255]
+DISPLAY_NORM_K_STD = 2.5  # map [mu - k*sigma, mu + k*sigma] -> [0,255]
 
 # ----------------------------------------------------------------------
 # Option A: Qt Indexed8 + palette tables (avoid expanding to RGB in NumPy)
@@ -323,11 +325,13 @@ def _setup_shortcuts(self):
         (self.update_combo.currentIndex() + 1) % self.update_combo.count()
     ))
 
+
 # Cache for k^2 grids:
 #   key: ("cpu", NZ, NX) or ("cuda", device_id, NZ, NX)
 #   val: K2 array on the corresponding backend (numpy or cupy)
 _K2_CACHE: dict[tuple, object] = {}
 CSV_HEADER = ("N", "K0", "Re", "CFL", "VISC", "STEPS", "PALIN", "SIG", "TIME", "MINUTES", "FPS")
+
 
 class MainWindow(QMainWindow):
     def __init__(self, sim: DnsSimulator, steps: str, update: str, iterations: int) -> None:
@@ -497,7 +501,6 @@ class MainWindow(QMainWindow):
             self.steps_combo.setStyle(QStyleFactory.create(FUSION))
             self.update_combo.setStyle(QStyleFactory.create(FUSION))
 
-
         self._build_layout()
 
         # --- status bar ---
@@ -506,7 +509,6 @@ class MainWindow(QMainWindow):
         mono = QFontDatabase.systemFont(QFontDatabase.SystemFont.FixedFont)
         self.status.setFont(mono)
         self.re_edit.setFont(mono)
-
 
         # Timer-based simulation (no QThread)
         self.timer = QTimer(self)
@@ -1031,17 +1033,17 @@ class MainWindow(QMainWindow):
 
         # 1) scalar metadata
         meta = pa.table({
-            "Nbase":     [int(S.Nbase)],
-            "Re":        [float(S.Re)],
-            "K0":        [float(S.K0)],
-            "visc":      [float(S.visc)],
-            "cflnum":    [float(S.cflnum)],
+            "Nbase": [int(S.Nbase)],
+            "Re": [float(S.Re)],
+            "K0": [float(S.K0)],
+            "visc": [float(S.visc)],
+            "cflnum": [float(S.cflnum)],
             "seed_init": [int(S.seed_init)],
-            "t":         [float(S.t)],
-            "dt":        [float(S.dt)],
-            "cn":        [float(S.cn)],
-            "cnm1":      [float(S.cnm1)],
-            "it":        [int(S.it)],
+            "t": [float(S.t)],
+            "dt": [float(S.dt)],
+            "cn": [float(S.cn)],
+            "cnm1": [float(S.cnm1)],
+            "it": [int(S.it)],
         })
         pq.write_table(meta, os.path.join(folder_path, "restart_meta.parquet"), compression="zstd")
 
@@ -1059,8 +1061,8 @@ class MainWindow(QMainWindow):
 
         # 5) store array shapes so the loader can reshape
         shapes = pa.table({
-            "uc_shape":   [str(np.asarray(S.uc).shape)],
-            "om2_shape":  [str(np.asarray(S.om2).shape)],
+            "uc_shape": [str(np.asarray(S.uc).shape)],
+            "om2_shape": [str(np.asarray(S.om2).shape)],
             "fnm1_shape": [str(np.asarray(S.fnm1).shape)],
         })
         pq.write_table(shapes, os.path.join(folder_path, "restart_shapes.parquet"), compression="zstd")
@@ -1360,7 +1362,7 @@ class MainWindow(QMainWindow):
         N = int(value)
         K0 = float(self.sim.state.K0)
         # Estimate Re
-        Reynolds = Re_from_N_K0(N,K0)
+        Reynolds = Re_from_N_K0(N, K0)
         self.sim.re = Reynolds
         self.sim.state.Re = Reynolds
         self.sim.set_N(N)
@@ -1373,7 +1375,7 @@ class MainWindow(QMainWindow):
         # 2) Compute new geometry
         new_w = self.image_label.pixmap().width() + 40
         new_h = self.image_label.pixmap().height() + 120
-        #print("Resize to:", new_w, new_h)
+        # print("Resize to:", new_w, new_h)
 
         # 3) Allow the window to shrink (RESET constraints)
         self.setMinimumSize(0, 0)
@@ -1402,7 +1404,6 @@ class MainWindow(QMainWindow):
         self.sim.cfl = float(value)
         self.sim.state.cflnum = self.sim.cfl
         self.on_step_clicked()
-
 
     def on_steps_changed(self, value: str) -> None:
         self.sim.max_steps = int(float(value))
@@ -1503,8 +1504,6 @@ class MainWindow(QMainWindow):
             norm = (arr - minv) / rng
             pix = (1.0 + norm * 254.0).round().clip(1, 255).astype(np.uint8)
             f.write(pix.tobytes())
-
-
 
     @staticmethod
     def _scalar_item(x) -> float:
@@ -1625,7 +1624,7 @@ class MainWindow(QMainWindow):
         if self.palinstrophy_over_enstrophy_kmax2 is None:
             pr_str = "N/A"
         else:
-            pr_str = f"{(10000*self.palinstrophy_over_enstrophy_kmax2):.1f}"
+            pr_str = f"{(10000 * self.palinstrophy_over_enstrophy_kmax2):.1f}"
 
         txt = (
             f"  FPS: {fps_str} | pal/Zkmax²: {pr_str} | σ: {sig_str} | Iter: {it:5d} | T: {t:6.3f} | dt: {dt:.6f} "
@@ -1776,8 +1775,11 @@ def Re_from_N_K0(N, K0):
     log10Re = a * np.log10(N) + b * np.log10(K0) + c
     return 10.0 ** log10Re
 
+
 # ----------------------------------------------------------------------
 Backend = Literal["cpu", "gpu", "auto"]
+
+
 def main() -> None:
     args = sys.argv[1:]
 
@@ -1803,7 +1805,7 @@ def main() -> None:
     CFL = float(args[4]) if len(args) > 4 else 0.3
 
     UPDATE = args[6] if len(args) > 6 else "20"
-    ITERATIONS = int(args[7]) if len(args) > 7 else 10**9
+    ITERATIONS = int(args[7]) if len(args) > 7 else 10 ** 9
 
     app = QApplication(sys.argv)
     icon_file = "palinstrophy.icns" if sys.platform == "darwin" else "palinstrophy.ico"
@@ -1820,6 +1822,7 @@ def main() -> None:
     window.setGeometry(g)
     window.show()
     sys.exit(app.exec())
+
 
 if __name__ == "__main__":
     main()
