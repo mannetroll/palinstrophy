@@ -275,6 +275,7 @@ class PostProcessWindow(QMainWindow):
         self.variable_combo = QComboBox()
         self.variable_combo.setToolTip("V: Variable")
         self.variable_combo.addItems(list(VARIABLES.keys()))
+        self.variable_combo.setCurrentText("Ω")
 
         # Colormap selector
         self.cmap_combo = QComboBox()
@@ -283,6 +284,13 @@ class PostProcessWindow(QMainWindow):
         idx = self.cmap_combo.findText(DEFAULT_CMAP_NAME)
         if idx >= 0:
             self.cmap_combo.setCurrentIndex(idx)
+
+        # Save button
+        self.save_button = QPushButton()
+        self.save_button.setIcon(style.standardIcon(QStyle.StandardPixmap.SP_DialogSaveButton))
+        self.save_button.setToolTip("Save current frame")
+        self.save_button.setFixedSize(28, 28)
+        self.save_button.setIconSize(QSize(14, 14))
 
         # Status bar
         self.status = QStatusBar()
@@ -298,15 +306,18 @@ class PostProcessWindow(QMainWindow):
         row1.setContentsMargins(10, 0, 0, 0)
         row1.setAlignment(Qt.AlignmentFlag.AlignLeft)
         row1.addWidget(self.folder_button)
-        row1.addSpacing(10)
+        row1.addSpacing(5)
         row1.addWidget(self.variable_combo)
         row1.addWidget(self.cmap_combo)
+        row1.addSpacing(5)
+        row1.addWidget(self.save_button)
         row1.addStretch(1)
         main.addLayout(row1)
 
         self.setCentralWidget(central)
 
         # --- connections ---
+        self.save_button.clicked.connect(self.on_save_clicked)
         self.folder_button.clicked.connect(self.on_folder_clicked)
         self.variable_combo.currentTextChanged.connect(lambda _: self._refresh_image())
         self.cmap_combo.currentTextChanged.connect(self.on_cmap_changed)
@@ -317,6 +328,29 @@ class PostProcessWindow(QMainWindow):
             self.cmap_combo.setStyle(QStyleFactory.create("Fusion"))
 
         self.resize(800, 700)
+
+    # ------------------------------------------------------------------
+    def on_save_clicked(self) -> None:
+        var_name = self.variable_combo.currentText()
+        cmap_name = self.cmap_combo.currentText()
+        default_name = f"palinstrophy_{var_name}_{cmap_name}.png"
+
+        desktop = QStandardPaths.writableLocation(
+            QStandardPaths.StandardLocation.DesktopLocation
+        )
+        initial_path = desktop + "/" + default_name
+
+        path, _ = QFileDialog.getSaveFileName(
+            self,
+            "Save frame",
+            initial_path,
+            "PNG images (*.png);;All files (*)",
+        )
+
+        if path:
+            pm = self.image_label.pixmap()
+            if pm:
+                pm.save(path, "PNG")
 
     # ------------------------------------------------------------------
     def on_folder_clicked(self) -> None:
@@ -352,11 +386,16 @@ class PostProcessWindow(QMainWindow):
             self.status.showMessage(f"No PGM files found in {folder}")
             return
 
-        # select first available variable
-        for i, label in enumerate(VARIABLES):
-            if label in self._pgm_data:
-                self.variable_combo.setCurrentIndex(i)
-                break
+        # select Ω if available, otherwise first available variable
+        preferred = "Ω"
+        keys = list(VARIABLES.keys())
+        if preferred in self._pgm_data:
+            self.variable_combo.setCurrentIndex(keys.index(preferred))
+        else:
+            for i, label in enumerate(keys):
+                if label in self._pgm_data:
+                    self.variable_combo.setCurrentIndex(i)
+                    break
 
         self.setWindowTitle(f"Post-Process — {os.path.basename(folder)}")
         self.status.showMessage(
