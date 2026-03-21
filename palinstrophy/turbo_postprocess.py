@@ -302,17 +302,23 @@ class PostProcessWindow(QMainWindow):
         main.setSpacing(3)
         main.addWidget(self.image_label)
 
+        # Button row
         row1 = QHBoxLayout()
         row1.setContentsMargins(10, 0, 0, 0)
         row1.setAlignment(Qt.AlignmentFlag.AlignLeft)
-        row1.addWidget(self.folder_button)
-        row1.addSpacing(5)
-        row1.addWidget(self.variable_combo)
-        row1.addWidget(self.cmap_combo)
-        row1.addSpacing(5)
         row1.addWidget(self.save_button)
+        row1.addWidget(self.folder_button)
         row1.addStretch(1)
         main.addLayout(row1)
+
+        # Combobox row
+        row2 = QHBoxLayout()
+        row2.setContentsMargins(10, 0, 0, 0)
+        row2.setAlignment(Qt.AlignmentFlag.AlignLeft)
+        row2.addWidget(self.variable_combo)
+        row2.addWidget(self.cmap_combo)
+        row2.addStretch(1)
+        main.addLayout(row2)
 
         self.setCentralWidget(central)
 

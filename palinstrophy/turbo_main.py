@@ -421,6 +421,13 @@ class MainWindow(QMainWindow):
         self.spectrum_button.setFixedSize(28, 28)
         self.spectrum_button.setIconSize(QSize(14, 14))
 
+        # Metrics button
+        self.metrics_button = QPushButton()
+        self.metrics_button.setIcon(style.standardIcon(QStyle.StandardPixmap.SP_FileDialogDetailedView))
+        self.metrics_button.setToolTip("Show metrics plot")
+        self.metrics_button.setFixedSize(28, 28)
+        self.metrics_button.setIconSize(QSize(14, 14))
+
         # Variable selector
         self.variable_combo = QComboBox()
         self.variable_combo.setToolTip("V: Variable")
@@ -514,6 +521,7 @@ class MainWindow(QMainWindow):
         self.folder_button.clicked.connect(self.on_folder_clicked)  # type: ignore[attr-defined]
         self.load_button.clicked.connect(self.on_load_clicked)  # type: ignore[attr-defined]
         self.spectrum_button.clicked.connect(self.on_spectrum_clicked)  # type: ignore[attr-defined]
+        self.metrics_button.clicked.connect(self.on_metrics_clicked)  # type: ignore[attr-defined]
         self.variable_combo.currentIndexChanged.connect(self.on_variable_changed)  # type: ignore[attr-defined]
         self.cmap_combo.currentTextChanged.connect(self.on_cmap_changed)  # type: ignore[attr-defined]
         self.n_combo.currentTextChanged.connect(self.on_n_changed)  # type: ignore[attr-defined]
@@ -574,10 +582,10 @@ class MainWindow(QMainWindow):
         main.setSpacing(3)
         main.addWidget(self.image_label)
 
-        # First row
+        # Button row
         row1 = QHBoxLayout()
         row1.setContentsMargins(10, 0, 0, 0)
-        row1.setAlignment(Qt.AlignmentFlag.AlignLeft)  # pack to left
+        row1.setAlignment(Qt.AlignmentFlag.AlignLeft)
         row1.addWidget(self.start_button)
         row1.addWidget(self.stop_button)
         row1.addWidget(self.reset_button)
@@ -585,19 +593,26 @@ class MainWindow(QMainWindow):
         row1.addWidget(self.folder_button)
         row1.addWidget(self.load_button)
         row1.addWidget(self.spectrum_button)
-        row1.addSpacing(10)
-        row1.addWidget(self.n_combo)
-        row1.addWidget(self.variable_combo)
-        row1.addWidget(self.cmap_combo)
-        row1.addWidget(self.re_edit)
-        row1.addWidget(self.k0_combo)
-        row1.addWidget(self.cfl_combo)
-        row1.addWidget(self.update_combo)
-        row1.addWidget(self.steps_combo)
-        row1.addSpacing(5)
-        row1.addWidget(self.auto_reset_checkbox)
+        row1.addWidget(self.metrics_button)
         row1.addStretch(1)
         main.addLayout(row1)
+
+        # Combobox row
+        row2 = QHBoxLayout()
+        row2.setContentsMargins(10, 0, 0, 0)
+        row2.setAlignment(Qt.AlignmentFlag.AlignLeft)
+        row2.addWidget(self.n_combo)
+        row2.addWidget(self.variable_combo)
+        row2.addWidget(self.cmap_combo)
+        row2.addWidget(self.re_edit)
+        row2.addWidget(self.k0_combo)
+        row2.addWidget(self.cfl_combo)
+        row2.addWidget(self.update_combo)
+        row2.addWidget(self.steps_combo)
+        row2.addSpacing(5)
+        row2.addWidget(self.auto_reset_checkbox)
+        row2.addStretch(1)
+        main.addLayout(row2)
 
         self.setCentralWidget(central)
 
@@ -876,6 +891,8 @@ class MainWindow(QMainWindow):
 
         dlg = QDialog(self)
         dlg.setWindowTitle("Energy Spectrum")
+        from PySide6.QtGui import QShortcut, QKeySequence
+        QShortcut(QKeySequence("Ctrl+W"), dlg, dlg.close)
         lay = QVBox(dlg)
         lbl = QLabel()
         lbl.setPixmap(pixmap)
@@ -1181,6 +1198,55 @@ class MainWindow(QMainWindow):
 
         print(f"[LOAD] Restored case from {folder_path}: N={N}, Re={Re:.4e}, K0={K0}, t={t:.6e}, it={it}")
 
+    def _make_metrics_fig(self):
+        """Build the metrics figure and return it, or None if not enough data."""
+        if len(self._csv_rows) < 2:
+            return None
+        import matplotlib.pyplot as plt
+        from matplotlib.artist import Artist
+        # unpack rows: (N, K0, Re, CFL, VISC, STEPS, PALIN, SIG, TIME, MINUTES, FPS)
+        time = np.array([r[8] for r in self._csv_rows], dtype=np.float64)
+        re_vals = np.array([r[2] for r in self._csv_rows], dtype=np.float64)
+        palin_vals = np.array([r[6] for r in self._csv_rows], dtype=np.float64)
+
+        fig = plt.figure(figsize=(12, 8))
+        ax = fig.add_subplot(1, 1, 1)
+        ax.set_title("Metrics vs time")
+
+        # Left axis
+        l1, = ax.plot(time, re_vals, color='black', label='Reynolds')
+        ax.set_xlabel("time")
+        ax.set_ylabel("Re")
+
+        # Right axis
+        ax2 = ax.twinx()
+        l2, = ax2.plot(time, palin_vals, linestyle='--', label='PALIN')
+        l3 = ax2.axhline(self._target, linewidth=0.5, label=f"target={self._target}")
+        ax2.set_ylabel("PALIN (10K*pal/Zkmax²)")
+
+        # One legend
+        handles: list[Artist] = [l1, l2, l3]
+        labels: list[str] = ["Reynolds", "PALIN", f"target={self._target}"]
+        ax.legend(handles, labels, loc="upper right", framealpha=1)
+
+        meta = self.get_meta()
+        fig.text(
+            0.10, 0.10, meta,
+            transform=fig.transFigure,
+            ha="left", va="bottom",
+            fontsize=10,
+            linespacing=1.5,
+            color="black",  # text 100%
+            bbox=dict(
+                boxstyle="round,pad=0.3",
+                facecolor=(1, 1, 1, 0.9),  # 10% see-through
+                edgecolor="none",
+            ),
+        )
+
+        fig.tight_layout()
+        return fig
+
     def write_plot_csv(self, folder_path: str):
         # ---- write metrics CSV ----
         csv_path = os.path.join(folder_path, f"metrics.csv")
@@ -1189,53 +1255,45 @@ class MainWindow(QMainWindow):
             w.writerow(self._csv_header)
             w.writerows(self._csv_rows)
 
-        if len(self._csv_rows) >= 2:
-            import matplotlib.pyplot as plt
-            from matplotlib.artist import Artist
-            # unpack rows: (N, K0, Re, CFL, VISC, STEPS, PALIN, SIG, TIME, MINUTES, FPS)
-            time = np.array([r[8] for r in self._csv_rows], dtype=np.float64)
-            re_vals = np.array([r[2] for r in self._csv_rows], dtype=np.float64)
-            palin_vals = np.array([r[6] for r in self._csv_rows], dtype=np.float64)
-
-            fig = plt.figure(figsize=(12, 8))
-            ax = fig.add_subplot(1, 1, 1)
-            ax.set_title("Metrics vs time")
-
-            # Left axis
-            l1, = ax.plot(time, re_vals, color='black', label='Reynolds')
-            ax.set_xlabel("time")
-            ax.set_ylabel("Re")
-
-            # Right axis
-            ax2 = ax.twinx()
-            l2, = ax2.plot(time, palin_vals, linestyle='--', label='PALIN')
-            l3 = ax2.axhline(self._target, linewidth=0.5, label=f"target={self._target}")
-            ax2.set_ylabel("PALIN (10K*pal/Zkmax²)")
-
-            # One legend
-            handles: list[Artist] = [l1, l2, l3]
-            labels: list[str] = ["Reynolds", "PALIN", f"target={self._target}"]
-            ax.legend(handles, labels, loc="upper right", framealpha=1)
-
-            meta = self.get_meta()
-            fig.text(
-                0.10, 0.10, meta,
-                transform=fig.transFigure,
-                ha="left", va="bottom",
-                fontsize=10,
-                linespacing=1.5,
-                color="black",  # text 100%
-                bbox=dict(
-                    boxstyle="round,pad=0.3",
-                    facecolor=(1, 1, 1, 0.9),  # 10% see-through
-                    edgecolor="none",
-                ),
-            )
-
-            fig.tight_layout()
+        import matplotlib.pyplot as plt
+        fig = self._make_metrics_fig()
+        if fig is not None:
             plot_path = os.path.join(folder_path, f"timeseries_Re_PALIN.png")
             fig.savefig(plot_path)
             plt.close(fig)
+
+    def _show_metrics_plot(self) -> None:
+        """Render the metrics plot to a modal dialog (no file write)."""
+        import matplotlib.pyplot as plt
+        from matplotlib.backends.backend_agg import FigureCanvasAgg
+        from PySide6.QtWidgets import QDialog, QVBoxLayout as QVBox
+        from PySide6.QtGui import QImage as QImg, QPixmap as QPix
+
+        fig = self._make_metrics_fig()
+        if fig is None:
+            return
+
+        canvas = FigureCanvasAgg(fig)
+        canvas.draw()
+        buf = canvas.buffer_rgba()
+        w, h = canvas.get_width_height()
+        qimg = QImg(bytes(buf), w, h, 4 * w, QImg.Format.Format_RGBA8888)
+        pixmap = QPix.fromImage(qimg)
+        plt.close(fig)
+
+        dlg = QDialog(self)
+        dlg.setWindowTitle("Metrics")
+        from PySide6.QtGui import QShortcut, QKeySequence
+        QShortcut(QKeySequence("Ctrl+W"), dlg, dlg.close)
+        lay = QVBox(dlg)
+        lbl = QLabel()
+        lbl.setPixmap(pixmap)
+        lay.addWidget(lbl)
+        dlg.resize(pixmap.size())
+        dlg.exec()
+
+    def on_metrics_clicked(self) -> None:
+        self._show_metrics_plot()
 
     def on_save_clicked(self) -> None:
         # determine variable name for filename
