@@ -249,13 +249,14 @@ class CustomColorsDialog(QDialog):
 
         self._sliders: list[dict[str, QSlider]] = []
         self._previews: list[QFrame] = []
+        self._value_labels: list[QLabel] = []
 
         layout = QVBoxLayout(self)
         layout.setSpacing(6)
 
         grid = QGridLayout()
         grid.setSpacing(4)
-        headers = ["", "R", "G", "B"]
+        headers = ["", "R", "G", "B", ""]
         for col, hdr in enumerate(headers):
             lbl = QLabel(hdr)
             lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -283,6 +284,14 @@ class CustomColorsDialog(QDialog):
 
             self._sliders.append(sliders)
 
+            # Numeric value label
+            val_lbl = QLabel()
+            val_lbl.setFixedWidth(90)
+            val_lbl.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
+            val_lbl.setStyleSheet("font-size: 10px; color: #888;")
+            self._value_labels.append(val_lbl)
+            grid.addWidget(val_lbl, row, 4)
+
         layout.addLayout(grid)
 
         # Reset button
@@ -291,7 +300,7 @@ class CustomColorsDialog(QDialog):
         layout.addWidget(reset_btn)
 
         self._update_previews()
-        self.setFixedWidth(560)
+        self.setFixedWidth(640)
 
     # ----------------------------------------------------------------
     def _on_slider_changed(self) -> None:
@@ -307,6 +316,7 @@ class CustomColorsDialog(QDialog):
             self._previews[i].setStyleSheet(
                 f"background-color: rgb({r},{g},{b}); border: 1px solid #555;"
             )
+            self._value_labels[i].setText(f"{r}, {g}, {b}")
 
     def _emit_lut(self) -> None:
         stops = [
