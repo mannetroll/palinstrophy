@@ -13,7 +13,7 @@ import sys
 import os
 import colorsys
 import numpy as np
-from PySide6.QtCore import Qt, QStandardPaths, QTimer
+from PySide6.QtCore import Qt, QStandardPaths, QTimer, QSize
 from PySide6.QtGui import QImage, QPixmap, qRgb
 from PySide6.QtWidgets import (
     QApplication,
@@ -269,8 +269,7 @@ class PostProcessWindow(QMainWindow):
         self.folder_button.setIcon(style.standardIcon(QStyle.StandardPixmap.SP_DirOpenIcon))
         self.folder_button.setToolTip("Open PGM folder")
         self.folder_button.setFixedSize(28, 28)
-        self.folder_button.setIconSize(style.standardIcon(QStyle.StandardPixmap.SP_DirOpenIcon).actualSize(
-            self.folder_button.iconSize()))
+        self.folder_button.setIconSize(QSize(14, 14))
 
         # Variable selector
         self.variable_combo = QComboBox()
@@ -299,6 +298,7 @@ class PostProcessWindow(QMainWindow):
         row1.setContentsMargins(10, 0, 0, 0)
         row1.setAlignment(Qt.AlignmentFlag.AlignLeft)
         row1.addWidget(self.folder_button)
+        row1.addSpacing(10)
         row1.addWidget(self.variable_combo)
         row1.addWidget(self.cmap_combo)
         row1.addStretch(1)
@@ -313,7 +313,8 @@ class PostProcessWindow(QMainWindow):
 
         if sys.platform == "darwin":
             from PySide6.QtWidgets import QStyleFactory
-            self.setStyle(QStyleFactory.create("Fusion"))
+            self.variable_combo.setStyle(QStyleFactory.create("Fusion"))
+            self.cmap_combo.setStyle(QStyleFactory.create("Fusion"))
 
         self.resize(800, 700)
 
