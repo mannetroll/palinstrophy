@@ -12,7 +12,7 @@ import sys
 import os
 import colorsys
 import numpy as np
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, QStandardPaths
 from PySide6.QtGui import QImage, QPixmap, qRgb
 from PySide6.QtWidgets import (
     QApplication,
@@ -316,11 +316,16 @@ class PostProcessWindow(QMainWindow):
 
     # ------------------------------------------------------------------
     def on_folder_clicked(self) -> None:
+        desktop = QStandardPaths.writableLocation(
+            QStandardPaths.StandardLocation.DesktopLocation
+        )
+
         dlg = QFileDialog(self)
         dlg.setWindowTitle("Select PGM folder")
         dlg.setFileMode(QFileDialog.FileMode.Directory)
         dlg.setOption(QFileDialog.Option.ShowDirsOnly, True)
         dlg.setOption(QFileDialog.Option.DontUseNativeDialog, True)
+        dlg.setDirectory(desktop)
 
         if dlg.exec():
             chosen = dlg.selectedFiles()[0]
