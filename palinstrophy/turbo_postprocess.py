@@ -13,7 +13,7 @@ import sys
 import os
 import colorsys
 import numpy as np
-from PySide6.QtCore import Qt, QStandardPaths, QTimer, QSize
+from PySide6.QtCore import Qt, QStandardPaths, QTimer, QSize, Signal
 from PySide6.QtGui import QImage, QPixmap, qRgb
 from PySide6.QtWidgets import (
     QApplication,
@@ -29,6 +29,10 @@ from PySide6.QtWidgets import (
     QLineEdit,
     QStyle,
     QSizePolicy,
+    QSlider,
+    QDialog,
+    QGridLayout,
+    QFrame,
 )
 
 
@@ -209,12 +213,122 @@ COLOR_MAPS = {
 }
 
 DEFAULT_CMAP_NAME = "Inferno"
+CUSTOM_CMAP_NAME = "Custom"
 
 QT_COLOR_TABLES = {
     name: [qRgb(int(rgb[0]), int(rgb[1]), int(rgb[2])) for rgb in lut]
     for name, lut in COLOR_MAPS.items()
 }
 QT_GRAY_TABLE = [qRgb(i, i, i) for i in range(256)]
+
+# ======================================================================
+# Custom Colors Dialog
+# ======================================================================
+
+class CustomColorsDialog(QDialog):
+    """Non-modal dialog with sliders to edit a custom GLUT in real time."""
+
+    lut_changed = Signal(list)  # emits a 256-entry Qt color table
+
+    NUM_STOPS = 5
+    FIXED_POSITIONS = [0.0, 0.25, 0.50, 0.75, 1.0]
+
+    def __init__(self, parent=None) -> None:
+        super().__init__(parent)
+        self.setWindowTitle("Custom Colors")
+        self.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose, False)
+
+        # Default stops (Inferno-ish)
+        self._stop_colors: list[list[int]] = [
+            [0, 0, 4],
+            [87, 16, 110],
+            [187, 55, 84],
+            [249, 142, 9],
+            [252, 255, 164],
+        ]
+
+        self._sliders: list[dict[str, QSlider]] = []
+        self._previews: list[QFrame] = []
+
+        layout = QVBoxLayout(self)
+        layout.setSpacing(6)
+
+        grid = QGridLayout()
+        grid.setSpacing(4)
+        headers = ["", "R", "G", "B"]
+        for col, hdr in enumerate(headers):
+            lbl = QLabel(hdr)
+            lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            grid.addWidget(lbl, 0, col)
+
+        for i in range(self.NUM_STOPS):
+            row = i + 1
+            # Color preview swatch
+            preview = QFrame()
+            preview.setFixedSize(28, 28)
+            preview.setFrameShape(QFrame.Shape.Box)
+            self._previews.append(preview)
+            grid.addWidget(preview, row, 0)
+
+            sliders = {}
+            r, g, b = self._stop_colors[i]
+            for ci, (ch, val) in enumerate([("r", r), ("g", g), ("b", b)]):
+                sl = QSlider(Qt.Orientation.Horizontal)
+                sl.setRange(0, 255)
+                sl.setValue(val)
+                sl.setFixedWidth(160)
+                sl.valueChanged.connect(self._on_slider_changed)
+                sliders[ch] = sl
+                grid.addWidget(sl, row, ci + 1)
+
+            self._sliders.append(sliders)
+
+        layout.addLayout(grid)
+
+        # Reset button
+        reset_btn = QPushButton("Reset")
+        reset_btn.clicked.connect(self._on_reset)
+        layout.addWidget(reset_btn)
+
+        self._update_previews()
+        self.setFixedWidth(560)
+
+    # ----------------------------------------------------------------
+    def _on_slider_changed(self) -> None:
+        for i in range(self.NUM_STOPS):
+            sl = self._sliders[i]
+            self._stop_colors[i] = [sl["r"].value(), sl["g"].value(), sl["b"].value()]
+        self._update_previews()
+        self._emit_lut()
+
+    def _update_previews(self) -> None:
+        for i, color in enumerate(self._stop_colors):
+            r, g, b = color
+            self._previews[i].setStyleSheet(
+                f"background-color: rgb({r},{g},{b}); border: 1px solid #555;"
+            )
+
+    def _emit_lut(self) -> None:
+        stops = [
+            (self.FIXED_POSITIONS[i], tuple(self._stop_colors[i]))
+            for i in range(self.NUM_STOPS)
+        ]
+        lut = _make_lut_from_stops(stops)
+        table = [qRgb(int(lut[j][0]), int(lut[j][1]), int(lut[j][2])) for j in range(256)]
+        self.lut_changed.emit(table)
+
+    def _on_reset(self) -> None:
+        defaults = [
+            [0, 0, 4], [87, 16, 110], [187, 55, 84], [249, 142, 9], [252, 255, 164],
+        ]
+        for i in range(self.NUM_STOPS):
+            self._stop_colors[i] = list(defaults[i])
+            self._sliders[i]["r"].setValue(defaults[i][0])
+            self._sliders[i]["g"].setValue(defaults[i][1])
+            self._sliders[i]["b"].setValue(defaults[i][2])
+        self._update_previews()
+        self._emit_lut()
+
 
 # ======================================================================
 # PGM variables  –  combo label → filename
@@ -292,6 +406,12 @@ class PostProcessWindow(QMainWindow):
         self.save_button.setFixedSize(28, 28)
         self.save_button.setIconSize(QSize(14, 14))
 
+        # Custom Colors button
+        self.custom_colors_button = QPushButton("Custom Colors")
+        self.custom_colors_button.setToolTip("Open custom GLUT editor")
+        self._custom_colors_dialog: CustomColorsDialog | None = None
+        self._custom_qt_table: list[int] | None = None
+
         # Status bar
         self.status = QStatusBar()
         self.setStatusBar(self.status)
@@ -311,6 +431,8 @@ class PostProcessWindow(QMainWindow):
         row1.addSpacing(5)
         row1.addWidget(self.variable_combo)
         row1.addWidget(self.cmap_combo)
+        row1.addSpacing(5)
+        row1.addWidget(self.custom_colors_button)
         row1.addStretch(1)
         main.addLayout(row1)
 
@@ -321,6 +443,7 @@ class PostProcessWindow(QMainWindow):
         self.folder_button.clicked.connect(self.on_folder_clicked)
         self.variable_combo.currentTextChanged.connect(lambda _: self._refresh_image())
         self.cmap_combo.currentTextChanged.connect(self.on_cmap_changed)
+        self.custom_colors_button.clicked.connect(self.on_custom_colors_clicked)
 
         if sys.platform == "darwin":
             from PySide6.QtWidgets import QStyleFactory
@@ -451,7 +574,10 @@ class PostProcessWindow(QMainWindow):
             w,
             QImage.Format.Format_Indexed8,
         )
-        table = QT_COLOR_TABLES.get(self.current_cmap_name, QT_GRAY_TABLE)
+        if self.current_cmap_name == CUSTOM_CMAP_NAME and self._custom_qt_table is not None:
+            table = self._custom_qt_table
+        else:
+            table = QT_COLOR_TABLES.get(self.current_cmap_name, QT_GRAY_TABLE)
         qimg.setColorTable(table)
         pix = QPixmap.fromImage(qimg, Qt.ImageConversionFlag.NoFormatConversion)
         self.image_label.setPixmap(pix)
@@ -472,6 +598,26 @@ class PostProcessWindow(QMainWindow):
         if name in COLOR_MAPS:
             self.current_cmap_name = name
             self._refresh_image()
+
+    # ------------------------------------------------------------------
+    def on_custom_colors_clicked(self) -> None:
+        if self._custom_colors_dialog is None:
+            self._custom_colors_dialog = CustomColorsDialog(self)
+            self._custom_colors_dialog.lut_changed.connect(self._on_custom_lut_changed)
+        dlg = self._custom_colors_dialog
+        # Position to the right of the main window
+        g = self.geometry()
+        dlg.move(g.right() + 10, g.top())
+        dlg.show()
+        dlg.raise_()
+        # Switch to custom colormap immediately
+        self._on_custom_lut_changed(None)
+
+    def _on_custom_lut_changed(self, table) -> None:
+        if table is not None:
+            self._custom_qt_table = table
+        self.current_cmap_name = CUSTOM_CMAP_NAME
+        self._refresh_image()
 
     # ------------------------------------------------------------------
     def keyPressEvent(self, event) -> None:
