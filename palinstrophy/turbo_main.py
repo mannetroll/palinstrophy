@@ -680,44 +680,33 @@ class MainWindow(QMainWindow):
         s = int(scale)  # 2,4,6,...
         return np.ascontiguousarray(pix[::s, ::s])
 
+    def _get_full_field_raw(self, variable: str):
+        """
+        Return a 2D float32 array for variable, staying on GPU if backend is gpu.
+        """
+        S = self.sim.state
+        xp = S.xp
+
+        if variable == "u":
+            return xp.asarray(S.ur_full[0], dtype=xp.float32)
+        if variable == "v":
+            return xp.asarray(S.ur_full[1], dtype=xp.float32)
+        if variable == "kinetic":
+            dns_all.dns_kinetic(S)
+            return xp.asarray(S.ur_full[2], dtype=xp.float32)
+        if variable == "omega":
+            dns_all.dns_om2_phys(S)
+            return xp.asarray(S.ur_full[2], dtype=xp.float32)
+        raise ValueError(f"Unknown variable: {variable}")
+
     def _get_full_field(self, variable: str) -> np.ndarray:
         """
         Return a 2D float32 array (NZ_full × NX_full) for variable:
             'u', 'v', 'kinetic', 'omega'
         """
+        field = self._get_full_field_raw(variable)
         S = self.sim.state
-
-        # --------------------------
-        # Direct velocity components
-        # --------------------------
-        if variable == "u":
-            field = S.ur_full[0]
-            return (field.get() if S.backend == "gpu" else field).astype(np.float32)
-
-        if variable == "v":
-            field = S.ur_full[1]
-            return (field.get() if S.backend == "gpu" else field).astype(np.float32)
-
-        # --------------------------
-        # Kinetic energy |u|
-        # --------------------------
-        if variable == "kinetic":
-            dns_all.dns_kinetic(S)  # fills ur_full[2,:,:]
-            field = S.ur_full[2]
-            return (field.get() if S.backend == "gpu" else field).astype(np.float32)
-
-        # --------------------------
-        # Physical vorticity ω
-        # --------------------------
-        if variable == "omega":
-            dns_all.dns_om2_phys(S)  # fills ur_full[2,:,:]
-            field = S.ur_full[2]
-            return (field.get() if S.backend == "gpu" else field).astype(np.float32)
-
-        # --------------------------
-        # Unknown variable
-        # --------------------------
-        raise ValueError(f"Unknown variable: {variable}")
+        return (field.get() if S.backend == "gpu" else field).astype(np.float32)
 
     def _update_run_buttons(self) -> None:
         """Enable/disable Start/Stop depending on the timer state."""
@@ -761,42 +750,52 @@ class MainWindow(QMainWindow):
         self._update_status(self.sim.get_time(), self.sim.get_iteration(), None)
         self.on_start_clicked()
 
-    def _make_energy_spectrum_fig(self, u: np.ndarray, v: np.ndarray, modal: bool = False):
+    def _make_energy_spectrum_fig(self, u, v, modal: bool = False):
         """
         Build a log-log isotropic kinetic energy spectrum figure E(k) from u,v.
 
         This is the textbook definition in Fourier space:
             E(k) ∝ sum_{|k| in shell} (|û(k)|^2 + |v̂(k)|^2)
 
+        Accepts NumPy or CuPy arrays; heavy math stays on the input device.
         Returns a matplotlib Figure, or None if inputs are invalid.
         """
         import matplotlib.pyplot as plt
 
-        u = np.asarray(u, dtype=np.float64)
-        v = np.asarray(v, dtype=np.float64)
+        # Detect array module (CuPy or NumPy)
+        xp = np
+        try:
+            import cupy
+            if isinstance(u, cupy.ndarray):
+                xp = cupy
+        except Exception:
+            pass
+
+        u = xp.asarray(u, dtype=xp.float64)
+        v = xp.asarray(v, dtype=xp.float64)
         if u.ndim != 2 or v.ndim != 2 or u.shape != v.shape:
             return None
 
         NZ, NX = u.shape
 
         # Remove mean (DC)
-        u = u - float(u.mean())
-        v = v - float(v.mean())
+        u = u - u.mean()
+        v = v - v.mean()
 
         # 2D FFT power of velocity components
-        U = np.fft.fft2(u)
-        V = np.fft.fft2(v)
+        U = xp.fft.fft2(u)
+        V = xp.fft.fft2(v)
         P = (U.real * U.real + U.imag * U.imag) + (V.real * V.real + V.imag * V.imag)
 
         # Frequency grids in "integer mode" units
-        kx = np.fft.fftfreq(NX) * NX
-        kz = np.fft.fftfreq(NZ) * NZ
-        KZ, KX = np.meshgrid(kz, kx, indexing="ij")
+        kx = xp.fft.fftfreq(NX) * NX
+        kz = xp.fft.fftfreq(NZ) * NZ
+        KZ, KX = xp.meshgrid(kz, kx, indexing="ij")
 
         # Normalized radial wavenumber: k / (N/2)
         N = float(min(NX, NZ))
         k_nyq = 0.5 * N
-        R = np.sqrt(KX * KX + KZ * KZ) / k_nyq
+        R = xp.sqrt(KX * KX + KZ * KZ) / k_nyq
 
         # Exclude the DC bin (R==0) from the radial statistics
         mask = R > 0.0
@@ -804,17 +803,22 @@ class MainWindow(QMainWindow):
         p = P[mask].ravel()
 
         # Radial binning up to r_max = sqrt(2) (corner)
-        r_max = np.sqrt(2.0)
+        r_max = float(xp.sqrt(xp.float64(2.0)))
         nbins = max(32, int(2 * min(NX, NZ)))  # reasonably smooth curve
-        idx = np.floor((r / r_max) * nbins).astype(np.int64)
-        idx = np.clip(idx, 0, nbins - 1)
+        idx = xp.floor((r / r_max) * nbins).astype(xp.int64)
+        idx = xp.clip(idx, 0, nbins - 1)
 
         # Shell-sum energy spectrum estimate
-        esum = np.bincount(idx, weights=p, minlength=nbins)
-        cnt = np.bincount(idx, minlength=nbins).astype(np.float64)
+        esum = xp.bincount(idx, weights=p, minlength=nbins)
+        cnt = xp.bincount(idx, minlength=nbins).astype(xp.float64)
         good = (cnt > 0.0) & (esum > 0.0)
 
-        # Bin centers in a normalized radius
+        # Transfer small arrays to CPU for matplotlib
+        if xp is not np:
+            esum = esum.get()
+            good = good.get()
+
+        # Bin centers in a normalized radius (always CPU for plotting)
         r_edges = np.linspace(0.0, r_max, nbins + 1)
         r_centers = 0.5 * (r_edges[:-1] + r_edges[1:])
 
@@ -906,8 +910,8 @@ class MainWindow(QMainWindow):
         from matplotlib.backends.backend_agg import FigureCanvasAgg
         from PySide6.QtGui import QImage as QImg, QPixmap as QPix
 
-        u = self._get_full_field("u")
-        v = self._get_full_field("v")
+        u = self._get_full_field_raw("u")
+        v = self._get_full_field_raw("v")
         fig = self._make_energy_spectrum_fig(u, v, modal=True)
         if fig is None:
             return
