@@ -949,19 +949,19 @@ class MainWindow(QMainWindow):
             "cnm1":      [float(S.cnm1)],
             "it":        [int(S.it)],
         })
-        pq.write_table(meta, os.path.join(folder_path, "restart_meta.parquet"))
+        pq.write_table(meta, os.path.join(folder_path, "restart_meta.parquet"), compression="zstd")
 
         # 2) spectral velocity  uc  (NZ, NK, 3) complex64
         pq.write_table(self._complex_array_to_table(S.uc),
-                       os.path.join(folder_path, "restart_uc.parquet"))
+                       os.path.join(folder_path, "restart_uc.parquet"), compression="zstd")
 
         # 3) vorticity  om2  (NZ, NX_half) complex64
         pq.write_table(self._complex_array_to_table(S.om2),
-                       os.path.join(folder_path, "restart_om2.parquet"))
+                       os.path.join(folder_path, "restart_om2.parquet"), compression="zstd")
 
         # 4) nonlinear history  fnm1  (NZ, NX_half) complex64
         pq.write_table(self._complex_array_to_table(S.fnm1),
-                       os.path.join(folder_path, "restart_fnm1.parquet"))
+                       os.path.join(folder_path, "restart_fnm1.parquet"), compression="zstd")
 
         # 5) store array shapes so the loader can reshape
         shapes = pa.table({
@@ -969,7 +969,7 @@ class MainWindow(QMainWindow):
             "om2_shape":  [str(np.asarray(S.om2).shape)],
             "fnm1_shape": [str(np.asarray(S.fnm1).shape)],
         })
-        pq.write_table(shapes, os.path.join(folder_path, "restart_shapes.parquet"))
+        pq.write_table(shapes, os.path.join(folder_path, "restart_shapes.parquet"), compression="zstd")
 
         print(f"[SAVE] Restart parquet files written to {folder_path}")
 
