@@ -1,0 +1,406 @@
+"""
+Standalone PySide6 post-processing viewer for palinstrophy PGM dump folders.
+
+Reads .pgm files (P5 binary grayscale) saved by the main turbulence app
+and displays them with QLabel + indexed color tables (same as the simulator).
+
+Usage:
+    uv run python -m palinstrophy.turbo_postprocess
+"""
+
+import sys
+import os
+import colorsys
+import numpy as np
+from PySide6.QtCore import Qt
+from PySide6.QtGui import QImage, QPixmap, qRgb
+from PySide6.QtWidgets import (
+    QApplication,
+    QMainWindow,
+    QWidget,
+    QLabel,
+    QVBoxLayout,
+    QHBoxLayout,
+    QComboBox,
+    QPushButton,
+    QFileDialog,
+    QStatusBar,
+    QLineEdit,
+    QStyle,
+    QSizePolicy,
+)
+
+
+# ======================================================================
+# Color LUTs  (identical to turbo_main.py)
+# ======================================================================
+
+def _make_lut_from_stops(stops, size: int = 256) -> np.ndarray:
+    stops = sorted(stops, key=lambda s: s[0])
+    lut = np.zeros((size, 3), dtype=np.uint8)
+    positions = [int(round(p * (size - 1))) for p, _ in stops]
+    colors = [np.array(c, dtype=np.float32) for _, c in stops]
+    for i in range(len(stops) - 1):
+        x0 = positions[i]
+        x1 = positions[i + 1]
+        c0 = colors[i]
+        c1 = colors[i + 1]
+        if x1 <= x0:
+            lut[x0] = c0.astype(np.uint8)
+            continue
+        length = x1 - x0
+        for j in range(length):
+            t = j / float(length)
+            c = (1.0 - t) * c0 + t * c1
+            lut[x0 + j] = c.astype(np.uint8)
+    lut[positions[-1]] = colors[-1].astype(np.uint8)
+    return lut
+
+
+def _make_gray_lut() -> np.ndarray:
+    lut = np.zeros((256, 3), dtype=np.uint8)
+    for i in range(256):
+        lut[i] = (i, i, i)
+    return lut
+
+
+def _make_fire_lut() -> np.ndarray:
+    lut = np.zeros((256, 3), dtype=np.uint8)
+    for x in range(256):
+        h_deg = 85.0 * (x / 255.0)
+        h = h_deg / 360.0
+        s = 1.0
+        l = min(1.0, x / 128.0)
+        r, g, b = colorsys.hls_to_rgb(h, l, s)
+        lut[x] = (int(r * 255), int(g * 255), int(b * 255))
+    return lut
+
+
+def _make_doom_fire_lut() -> np.ndarray:
+    key_colors = np.array([
+        [0, 0, 0], [7, 7, 7], [31, 7, 7], [47, 15, 7],
+        [71, 15, 7], [87, 23, 7], [103, 31, 7], [119, 31, 7],
+        [143, 39, 7], [159, 47, 7], [175, 63, 7], [191, 71, 7],
+        [199, 71, 7], [223, 79, 7], [223, 87, 7], [223, 87, 7],
+        [215, 95, 7], [215, 95, 7], [215, 103, 15], [207, 111, 15],
+        [207, 119, 15], [207, 127, 15], [207, 135, 23], [199, 135, 23],
+        [199, 143, 23], [199, 151, 31], [191, 159, 31], [191, 159, 31],
+        [191, 167, 39], [191, 167, 39], [191, 175, 47], [183, 175, 47],
+        [183, 183, 47], [183, 183, 55], [207, 207, 111], [223, 223, 159],
+        [239, 239, 199], [255, 255, 255],
+    ], dtype=np.uint8)
+    stops = []
+    n_keys = key_colors.shape[0]
+    for i in range(n_keys):
+        pos = i / (n_keys - 1)
+        stops.append((pos, key_colors[i].tolist()))
+    return _make_lut_from_stops(stops)
+
+
+def _make_viridis_lut() -> np.ndarray:
+    stops = [
+        (0.0, (68, 1, 84)), (0.25, (59, 82, 139)),
+        (0.50, (33, 145, 140)), (0.75, (94, 201, 98)), (1.0, (253, 231, 37)),
+    ]
+    return _make_lut_from_stops(stops)
+
+
+def _make_inferno_lut() -> np.ndarray:
+    stops = [
+        (0.0, (0, 0, 4)), (0.25, (87, 16, 110)),
+        (0.50, (188, 55, 84)), (0.75, (249, 142, 9)), (1.0, (252, 255, 164)),
+    ]
+    return _make_lut_from_stops(stops)
+
+
+def _make_ocean_lut() -> np.ndarray:
+    stops = [
+        (0.0, (0, 0, 0)), (0.25, (0, 0, 100)),
+        (0.50, (0, 100, 180)), (0.75, (0, 200, 200)), (1.0, (255, 255, 255)),
+    ]
+    return _make_lut_from_stops(stops)
+
+
+def _make_cividis_lut() -> np.ndarray:
+    stops = [
+        (0.0, (0, 32, 77)), (0.25, (61, 78, 112)),
+        (0.50, (125, 123, 115)), (0.75, (194, 172, 88)), (1.0, (253, 232, 37)),
+    ]
+    return _make_lut_from_stops(stops)
+
+
+def _make_jet_lut() -> np.ndarray:
+    stops = [
+        (0.0, (0, 0, 131)), (0.125, (0, 0, 255)), (0.375, (0, 255, 255)),
+        (0.625, (255, 255, 0)), (0.875, (255, 0, 0)), (1.0, (128, 0, 0)),
+    ]
+    return _make_lut_from_stops(stops)
+
+
+def _make_coolwarm_lut() -> np.ndarray:
+    stops = [
+        (0.0, (59, 76, 192)), (0.25, (141, 176, 254)),
+        (0.50, (221, 221, 221)), (0.75, (245, 160, 105)), (1.0, (180, 4, 38)),
+    ]
+    return _make_lut_from_stops(stops)
+
+
+def _make_rdbu_lut() -> np.ndarray:
+    stops = [
+        (0.0, (5, 48, 97)), (0.25, (67, 147, 195)),
+        (0.50, (247, 247, 247)), (0.75, (214, 96, 77)), (1.0, (103, 0, 31)),
+    ]
+    return _make_lut_from_stops(stops)
+
+
+def _make_plasma_lut() -> np.ndarray:
+    stops = [
+        (0.0, (13, 8, 135)), (0.25, (126, 3, 168)),
+        (0.50, (204, 71, 120)), (0.75, (248, 149, 64)), (1.0, (240, 249, 33)),
+    ]
+    return _make_lut_from_stops(stops)
+
+
+def _make_magma_lut() -> np.ndarray:
+    stops = [
+        (0.0, (0, 0, 4)), (0.25, (81, 18, 124)),
+        (0.50, (183, 55, 121)), (0.75, (254, 159, 109)), (1.0, (252, 253, 191)),
+    ]
+    return _make_lut_from_stops(stops)
+
+
+def _make_turbo_lut() -> np.ndarray:
+    stops = [
+        (0.0, (48, 18, 59)), (0.25, (31, 120, 180)),
+        (0.50, (78, 181, 75)), (0.75, (241, 208, 29)), (1.0, (133, 32, 26)),
+    ]
+    return _make_lut_from_stops(stops)
+
+
+GRAY_LUT = _make_gray_lut()
+INFERNO_LUT = _make_inferno_lut()
+OCEAN_LUT = _make_ocean_lut()
+VIRIDIS_LUT = _make_viridis_lut()
+PLASMA_LUT = _make_plasma_lut()
+MAGMA_LUT = _make_magma_lut()
+TURBO_LUT = _make_turbo_lut()
+FIRE_LUT = _make_fire_lut()
+DOOM_FIRE_LUT = _make_doom_fire_lut()
+CIVIDIS_LUT = _make_cividis_lut()
+JET_LUT = _make_jet_lut()
+COOLWARM_LUT = _make_coolwarm_lut()
+RDBU_LUT = _make_rdbu_lut()
+
+COLOR_MAPS = {
+    "Gray": GRAY_LUT,
+    "Inferno": INFERNO_LUT,
+    "Ocean": OCEAN_LUT,
+    "Viridis": VIRIDIS_LUT,
+    "Plasma": PLASMA_LUT,
+    "Magma": MAGMA_LUT,
+    "Turbo": TURBO_LUT,
+    "Fire": FIRE_LUT,
+    "Doom": DOOM_FIRE_LUT,
+    "Cividis": CIVIDIS_LUT,
+    "Jet": JET_LUT,
+    "Coolwarm": COOLWARM_LUT,
+    "RdBu": RDBU_LUT,
+}
+
+DEFAULT_CMAP_NAME = "Inferno"
+
+QT_COLOR_TABLES = {
+    name: [qRgb(int(rgb[0]), int(rgb[1]), int(rgb[2])) for rgb in lut]
+    for name, lut in COLOR_MAPS.items()
+}
+QT_GRAY_TABLE = [qRgb(i, i, i) for i in range(256)]
+
+# ======================================================================
+# PGM variables  –  combo label → filename
+# ======================================================================
+VARIABLES = {
+    "U": "u_velocity.pgm",
+    "V": "v_velocity.pgm",
+    "K": "kinetic.pgm",
+    "Ω": "omega.pgm",
+}
+
+
+def read_pgm(filename: str) -> np.ndarray:
+    with open(filename, "rb") as f:
+        magic = f.readline().strip()
+        assert magic == b"P5", f"Not a P5 PGM file: {magic}"
+        line = f.readline()
+        while line.startswith(b"#"):
+            line = f.readline()
+        w, h = map(int, line.split())
+        maxval = int(f.readline().strip())
+        data = f.read(w * h)
+    return np.frombuffer(data, dtype=np.uint8).reshape((h, w))
+
+
+# ======================================================================
+# Main window
+# ======================================================================
+
+class PostProcessWindow(QMainWindow):
+    def __init__(self) -> None:
+        super().__init__()
+        self.setWindowTitle("Palinstrophy Post-Process Viewer")
+        self.current_cmap_name = DEFAULT_CMAP_NAME
+        self.folder_path: str = ""
+        self._pgm_data: dict[str, np.ndarray] = {}
+
+        # --- central image label ---
+        self.image_label = QLabel()
+        self.image_label.setContentsMargins(0, 0, 0, 0)
+        self.image_label.setMinimumSize(1, 1)
+        self.image_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+
+        style = QApplication.style()
+
+        # Folder button
+        self.folder_button = QPushButton()
+        self.folder_button.setIcon(style.standardIcon(QStyle.StandardPixmap.SP_DirOpenIcon))
+        self.folder_button.setToolTip("Open PGM folder")
+        self.folder_button.setFixedSize(28, 28)
+        self.folder_button.setIconSize(style.standardIcon(QStyle.StandardPixmap.SP_DirOpenIcon).actualSize(
+            self.folder_button.iconSize()))
+
+        # Variable selector
+        self.variable_combo = QComboBox()
+        self.variable_combo.setToolTip("V: Variable")
+        self.variable_combo.addItems(list(VARIABLES.keys()))
+
+        # Colormap selector
+        self.cmap_combo = QComboBox()
+        self.cmap_combo.setToolTip("C: Colormap")
+        self.cmap_combo.addItems(list(COLOR_MAPS.keys()))
+        idx = self.cmap_combo.findText(DEFAULT_CMAP_NAME)
+        if idx >= 0:
+            self.cmap_combo.setCurrentIndex(idx)
+
+        # Status bar
+        self.status = QStatusBar()
+        self.setStatusBar(self.status)
+
+        # --- layout ---
+        toolbar = QHBoxLayout()
+        toolbar.addWidget(self.folder_button)
+        toolbar.addWidget(self.variable_combo)
+        toolbar.addWidget(self.cmap_combo)
+        toolbar.addStretch()
+
+        vbox = QVBoxLayout()
+        vbox.addLayout(toolbar)
+        vbox.addWidget(self.image_label, stretch=1)
+
+        container = QWidget()
+        container.setLayout(vbox)
+        self.setCentralWidget(container)
+
+        # --- connections ---
+        self.folder_button.clicked.connect(self.on_folder_clicked)
+        self.variable_combo.currentTextChanged.connect(lambda _: self._refresh_image())
+        self.cmap_combo.currentTextChanged.connect(self.on_cmap_changed)
+
+        if sys.platform == "darwin":
+            from PySide6.QtWidgets import QStyleFactory
+            self.setStyle(QStyleFactory.create("Fusion"))
+
+        self.resize(800, 700)
+
+    # ------------------------------------------------------------------
+    def on_folder_clicked(self) -> None:
+        dlg = QFileDialog(self)
+        dlg.setWindowTitle("Select PGM folder")
+        dlg.setFileMode(QFileDialog.FileMode.Directory)
+        dlg.setOption(QFileDialog.Option.ShowDirsOnly, True)
+        dlg.setOption(QFileDialog.Option.DontUseNativeDialog, True)
+
+        if dlg.exec():
+            chosen = dlg.selectedFiles()[0]
+        else:
+            return
+
+        self._load_folder(chosen)
+
+    # ------------------------------------------------------------------
+    def _load_folder(self, folder: str) -> None:
+        self.folder_path = folder
+        self._pgm_data.clear()
+
+        for label, fname in VARIABLES.items():
+            path = os.path.join(folder, fname)
+            if os.path.isfile(path):
+                self._pgm_data[label] = read_pgm(path)
+
+        if not self._pgm_data:
+            self.status.showMessage(f"No PGM files found in {folder}")
+            return
+
+        # select first available variable
+        for i, label in enumerate(VARIABLES):
+            if label in self._pgm_data:
+                self.variable_combo.setCurrentIndex(i)
+                break
+
+        self.setWindowTitle(f"Post-Process — {os.path.basename(folder)}")
+        self.status.showMessage(
+            f"Loaded {len(self._pgm_data)} field(s) from {folder}"
+        )
+        self._refresh_image()
+
+    # ------------------------------------------------------------------
+    def _refresh_image(self) -> None:
+        label = self.variable_combo.currentText()
+        arr = self._pgm_data.get(label)
+        if arr is None:
+            return
+
+        pixels = np.ascontiguousarray(arr)
+        h, w = pixels.shape
+
+        qimg = QImage(
+            pixels.data,
+            w,
+            h,
+            w,
+            QImage.Format.Format_Indexed8,
+        )
+        table = QT_COLOR_TABLES.get(self.current_cmap_name, QT_GRAY_TABLE)
+        qimg.setColorTable(table)
+        pix = QPixmap.fromImage(qimg, Qt.ImageConversionFlag.NoFormatConversion)
+        self.image_label.setPixmap(pix)
+
+    # ------------------------------------------------------------------
+    def on_cmap_changed(self, name: str) -> None:
+        if name in COLOR_MAPS:
+            self.current_cmap_name = name
+            self._refresh_image()
+
+    # ------------------------------------------------------------------
+    def keyPressEvent(self, event) -> None:
+        key = event.key()
+        if key == Qt.Key.Key_V:
+            idx = self.variable_combo.currentIndex()
+            count = self.variable_combo.count()
+            self.variable_combo.setCurrentIndex((idx + 1) % count)
+            return
+        if key == Qt.Key.Key_C:
+            idx = self.cmap_combo.currentIndex()
+            count = self.cmap_combo.count()
+            self.cmap_combo.setCurrentIndex((idx + 1) % count)
+            return
+        super().keyPressEvent(event)
+
+
+def main():
+    app = QApplication(sys.argv)
+    win = PostProcessWindow()
+    win.show()
+    sys.exit(app.exec())
+
+
+if __name__ == "__main__":
+    main()

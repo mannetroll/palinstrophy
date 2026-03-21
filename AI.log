@@ -1,0 +1,18 @@
+This is Dr Tobbe. I am continuing the python app we built (SciPy/CuPy).
+No defensive programming, just make it work. Do not take historical data into account.
+Make drop in files with current functionality untouched.
+
+PGM files are stored from self.image_label = QLabel() in
+turbo_main.py
+PGM can be view with turbo_viewcase.py
+
+Make a completely new PySide6 app
+turbo_postprocess.py
+that can read and show these PGM files.
+Folder should be with a dialog.
+The view should be done with a
+self.image_label = QLabel()
+same as writer not matplotlib.
+Keep the cmap_combo and variable_combo.
+So this PySide6 app is a small clone without simulation.
+It will be a post process app in colors.
