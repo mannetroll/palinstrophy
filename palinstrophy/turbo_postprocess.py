@@ -289,20 +289,22 @@ class PostProcessWindow(QMainWindow):
         self.status = QStatusBar()
         self.setStatusBar(self.status)
 
-        # --- layout ---
-        toolbar = QHBoxLayout()
-        toolbar.addWidget(self.folder_button)
-        toolbar.addWidget(self.variable_combo)
-        toolbar.addWidget(self.cmap_combo)
-        toolbar.addStretch()
+        # --- layout  (matches turbo_main.py _build_layout) ---
+        central = QWidget()
+        main = QVBoxLayout(central)
+        main.setSpacing(3)
+        main.addWidget(self.image_label)
 
-        vbox = QVBoxLayout()
-        vbox.addLayout(toolbar)
-        vbox.addWidget(self.image_label, stretch=1)
+        row1 = QHBoxLayout()
+        row1.setContentsMargins(10, 0, 0, 0)
+        row1.setAlignment(Qt.AlignmentFlag.AlignLeft)
+        row1.addWidget(self.folder_button)
+        row1.addWidget(self.variable_combo)
+        row1.addWidget(self.cmap_combo)
+        row1.addStretch(1)
+        main.addLayout(row1)
 
-        container = QWidget()
-        container.setLayout(vbox)
-        self.setCentralWidget(container)
+        self.setCentralWidget(central)
 
         # --- connections ---
         self.folder_button.clicked.connect(self.on_folder_clicked)
