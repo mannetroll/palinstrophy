@@ -913,7 +913,64 @@ class MainWindow(QMainWindow):
         print(", ".join(CSV_HEADER))
         print(f"{N}, {K0}, {Re:.4e}, {CFL}, {VISC:.4e}, {STEPS}, {PALIN}, {SIG}, {TIME:.2e}, {MINUTES:.2f}, {FPS:.1f}")
         self.write_plot_csv(folder_path)
+
+        # ---- store restart data as parquet files ----
+        self._dump_restart_parquet(folder_path)
+
         print("[SAVE] Completed.")
+
+    # ------------------------------------------------------------------
+    #  Restart-data helpers  (parquet)
+    # ------------------------------------------------------------------
+    @staticmethod
+    def _complex_array_to_df(arr):
+        """Flatten a complex ndarray and return a DataFrame with real/imag columns."""
+        import pandas as pd
+        flat = np.asarray(arr).ravel()
+        return pd.DataFrame({"real": flat.real, "imag": flat.imag})
+
+    def _dump_restart_parquet(self, folder_path: str):
+        import pandas as pd
+
+        S = self.sim.state
+
+        # 1) scalar metadata
+        meta = pd.DataFrame([{
+            "Nbase": int(S.Nbase),
+            "Re": float(S.Re),
+            "K0": float(S.K0),
+            "visc": float(S.visc),
+            "cflnum": float(S.cflnum),
+            "seed_init": int(S.seed_init),
+            "t": float(S.t),
+            "dt": float(S.dt),
+            "cn": float(S.cn),
+            "cnm1": float(S.cnm1),
+            "it": int(S.it),
+        }])
+        meta.to_parquet(os.path.join(folder_path, "restart_meta.parquet"))
+
+        # 2) spectral velocity  uc  (NZ, NK, 3) complex64
+        self._complex_array_to_df(S.uc).to_parquet(
+            os.path.join(folder_path, "restart_uc.parquet"))
+
+        # 3) vorticity  om2  (NZ, NX_half) complex64
+        self._complex_array_to_df(S.om2).to_parquet(
+            os.path.join(folder_path, "restart_om2.parquet"))
+
+        # 4) nonlinear history  fnm1  (NZ, NX_half) complex64
+        self._complex_array_to_df(S.fnm1).to_parquet(
+            os.path.join(folder_path, "restart_fnm1.parquet"))
+
+        # 5) store array shapes so the loader can reshape
+        shapes = pd.DataFrame([{
+            "uc_shape": str(np.asarray(S.uc).shape),
+            "om2_shape": str(np.asarray(S.om2).shape),
+            "fnm1_shape": str(np.asarray(S.fnm1).shape),
+        }])
+        shapes.to_parquet(os.path.join(folder_path, "restart_shapes.parquet"))
+
+        print(f"[SAVE] Restart parquet files written to {folder_path}")
 
     def write_plot_csv(self, folder_path: str):
         # ---- write metrics CSV ----

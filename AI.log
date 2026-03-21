@@ -16,3 +16,8 @@ same as writer not matplotlib.
 Keep the cmap_combo and variable_combo.
 So this PySide6 app is a small clone without simulation.
 It will be a post process app in colors.
+
+
+In turbo_main in `dump_to_folder`
+add logic to store the necceary data, in order to continue
+a simulation, in parquet files.

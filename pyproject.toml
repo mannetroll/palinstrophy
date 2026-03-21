@@ -18,6 +18,8 @@ dependencies = [
   "scipy>=1.16.3,<2",
   "PySide6>=6.10.1,<7",
   "matplotlib>=3.10.8,<4",
+  "pandas>=2,<3",
+  "pyarrow>=19,<20",
 ]
 
 # Optional GPU extra
