@@ -321,11 +321,28 @@ class CustomColorsDialog(QDialog):
         defaults = [
             [0, 0, 4], [87, 16, 110], [187, 55, 84], [249, 142, 9], [252, 255, 164],
         ]
+        self.set_stops_from_colors(defaults)
+
+    def set_stops_from_lut(self, lut: np.ndarray) -> None:
+        """Sample *lut* (256×3 uint8) at the five fixed positions and update sliders."""
+        indices = [int(round(p * 255)) for p in self.FIXED_POSITIONS]
+        colors = [list(int(c) for c in lut[idx]) for idx in indices]
+        self.set_stops_from_colors(colors)
+
+    def set_stops_from_colors(self, colors: list[list[int]]) -> None:
+        """Set all five stops from a list of [R, G, B] triples and update sliders."""
+        # Block slider signals so we don't fire per-channel updates
+        for sl_dict in self._sliders:
+            for sl in sl_dict.values():
+                sl.blockSignals(True)
         for i in range(self.NUM_STOPS):
-            self._stop_colors[i] = list(defaults[i])
-            self._sliders[i]["r"].setValue(defaults[i][0])
-            self._sliders[i]["g"].setValue(defaults[i][1])
-            self._sliders[i]["b"].setValue(defaults[i][2])
+            self._stop_colors[i] = list(colors[i])
+            self._sliders[i]["r"].setValue(colors[i][0])
+            self._sliders[i]["g"].setValue(colors[i][1])
+            self._sliders[i]["b"].setValue(colors[i][2])
+        for sl_dict in self._sliders:
+            for sl in sl_dict.values():
+                sl.blockSignals(False)
         self._update_previews()
         self._emit_lut()
 
@@ -588,6 +605,10 @@ class PostProcessWindow(QMainWindow):
         self.setMinimumSize(0, 0)
         self.setMaximumSize(16777215, 16777215)
         self.resize(new_w, new_h)
+        # Don't re-centre when the custom-colors dialog is visible
+        # (the user / on_custom_colors_clicked already placed the window)
+        if self._custom_colors_dialog is not None and self._custom_colors_dialog.isVisible():
+            return
         screen = QApplication.primaryScreen().availableGeometry()
         g = self.geometry()
         g.moveCenter(screen.center())
@@ -598,6 +619,9 @@ class PostProcessWindow(QMainWindow):
         if name in COLOR_MAPS:
             self.current_cmap_name = name
             self._refresh_image()
+            # Sync the custom-colors dialog sliders to the newly chosen map
+            if self._custom_colors_dialog is not None:
+                self._custom_colors_dialog.set_stops_from_lut(COLOR_MAPS[name])
 
     # ------------------------------------------------------------------
     def on_custom_colors_clicked(self) -> None:
@@ -605,7 +629,12 @@ class PostProcessWindow(QMainWindow):
             self._custom_colors_dialog = CustomColorsDialog(self)
             self._custom_colors_dialog.lut_changed.connect(self._on_custom_lut_changed)
         dlg = self._custom_colors_dialog
-        # Position to the right of the main window
+        # Move main window ~1/3 to the left so the dialog fits on the right
+        screen = QApplication.primaryScreen().availableGeometry()
+        g = self.geometry()
+        shifted_x = max(screen.left(), g.x() - screen.width() // 3)
+        self.move(shifted_x, g.y())
+        # Position dialog to the right of the (shifted) main window
         g = self.geometry()
         dlg.move(g.right() + 10, g.top())
         dlg.show()
