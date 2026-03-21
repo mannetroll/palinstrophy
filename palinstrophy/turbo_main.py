@@ -1221,7 +1221,7 @@ class MainWindow(QMainWindow):
 
         print(f"[LOAD] Restored case from {folder_path}: N={N}, Re={Re:.4e}, K0={K0}, t={t:.6e}, it={it}")
 
-    def _make_metrics_fig(self):
+    def _make_metrics_fig(self, modal: bool = False):
         """Build the metrics figure and return it, or None if not enough data."""
         if len(self._csv_rows) < 2:
             return None
@@ -1232,7 +1232,7 @@ class MainWindow(QMainWindow):
         re_vals = np.array([r[2] for r in self._csv_rows], dtype=np.float64)
         palin_vals = np.array([r[6] for r in self._csv_rows], dtype=np.float64)
 
-        fig = plt.figure(figsize=(12, 8))
+        fig = plt.figure(figsize=(6, 4) if modal else (12, 8))
         ax = fig.add_subplot(1, 1, 1)
         ax.set_title("Metrics vs time")
 
@@ -1252,20 +1252,21 @@ class MainWindow(QMainWindow):
         labels: list[str] = ["Reynolds", "PALIN", f"target={self._target}"]
         ax.legend(handles, labels, loc="upper right", framealpha=1)
 
-        meta = self.get_meta()
-        fig.text(
-            0.10, 0.10, meta,
-            transform=fig.transFigure,
-            ha="left", va="bottom",
-            fontsize=10,
-            linespacing=1.5,
-            color="black",  # text 100%
-            bbox=dict(
-                boxstyle="round,pad=0.3",
-                facecolor=(1, 1, 1, 0.9),  # 10% see-through
-                edgecolor="none",
-            ),
-        )
+        if not modal:
+            meta = self.get_meta()
+            fig.text(
+                0.10, 0.10, meta,
+                transform=fig.transFigure,
+                ha="left", va="bottom",
+                fontsize=10,
+                linespacing=1.5,
+                color="black",  # text 100%
+                bbox=dict(
+                    boxstyle="round,pad=0.3",
+                    facecolor=(1, 1, 1, 0.9),  # 10% see-through
+                    edgecolor="none",
+                ),
+            )
 
         fig.tight_layout()
         return fig
@@ -1286,13 +1287,41 @@ class MainWindow(QMainWindow):
             plt.close(fig)
 
     def _show_metrics_plot(self) -> None:
-        """Render the metrics plot to a modal dialog (no file write)."""
+        """Open a persistent (non-modal) metrics dialog that auto-refreshes."""
+        if hasattr(self, '_metrics_dlg') and self._metrics_dlg is not None:
+            if self._metrics_dlg.isVisible():
+                self._metrics_dlg.close()
+                self._metrics_dlg = None
+                return
+
+        from PySide6.QtWidgets import QDialog, QVBoxLayout as QVBox
+
+        dlg = QDialog(self)
+        dlg.setWindowTitle("Metrics")
+        dlg.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose)
+        QShortcut(QKeySequence("Ctrl+W"), dlg, dlg.close)
+        lay = QVBox(dlg)
+        lbl = QLabel()
+        lay.addWidget(lbl)
+        self._metrics_dlg = dlg
+        self._metrics_lbl = lbl
+        dlg.destroyed.connect(self._on_metrics_dlg_destroyed)
+        self._refresh_metrics()
+        dlg.show()
+
+    def _on_metrics_dlg_destroyed(self) -> None:
+        self._metrics_dlg = None
+        self._metrics_lbl = None
+
+    def _refresh_metrics(self) -> None:
+        """Redraw the metrics plot into the persistent dialog label."""
+        if not hasattr(self, '_metrics_dlg') or self._metrics_dlg is None:
+            return
         import matplotlib.pyplot as plt
         from matplotlib.backends.backend_agg import FigureCanvasAgg
-        from PySide6.QtWidgets import QDialog, QVBoxLayout as QVBox
         from PySide6.QtGui import QImage as QImg, QPixmap as QPix
 
-        fig = self._make_metrics_fig()
+        fig = self._make_metrics_fig(modal=True)
         if fig is None:
             return
 
@@ -1304,16 +1333,8 @@ class MainWindow(QMainWindow):
         pixmap = QPix.fromImage(qimg)
         plt.close(fig)
 
-        dlg = QDialog(self)
-        dlg.setWindowTitle("Metrics")
-        from PySide6.QtGui import QShortcut, QKeySequence
-        QShortcut(QKeySequence("Ctrl+W"), dlg, dlg.close)
-        lay = QVBox(dlg)
-        lbl = QLabel()
-        lbl.setPixmap(pixmap)
-        lay.addWidget(lbl)
-        dlg.resize(pixmap.size())
-        dlg.exec()
+        self._metrics_lbl.setPixmap(pixmap)
+        self._metrics_dlg.resize(pixmap.size())
 
     def on_metrics_clicked(self) -> None:
         self._show_metrics_plot()
@@ -1608,6 +1629,7 @@ class MainWindow(QMainWindow):
         self.image_label.setPixmap(pix)
 
         self._refresh_spectrum()
+        self._refresh_metrics()
 
     def _update_status(self, t: float, it: int, fps: Optional[float]) -> None:
         fps_str = f"{fps:5.2f}" if fps is not None else " N/A"
