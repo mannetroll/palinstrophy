@@ -759,7 +759,7 @@ class MainWindow(QMainWindow):
         self._update_status(self.sim.get_time(), self.sim.get_iteration(), None)
         self.on_start_clicked()
 
-    def _make_energy_spectrum_fig(self, u: np.ndarray, v: np.ndarray):
+    def _make_energy_spectrum_fig(self, u: np.ndarray, v: np.ndarray, modal: bool = False):
         """
         Build a log-log isotropic kinetic energy spectrum figure E(k) from u,v.
 
@@ -817,7 +817,7 @@ class MainWindow(QMainWindow):
         r_centers = 0.5 * (r_edges[:-1] + r_edges[1:])
 
         # Plot
-        fig = plt.figure(figsize=(12, 8))
+        fig = plt.figure(figsize=(6, 4) if modal else (12, 8))
         ax = fig.add_subplot(1, 1, 1)
         ax.loglog(r_centers[good], esum[good])
         ax.set_ylim(bottom=1)
@@ -846,15 +846,16 @@ class MainWindow(QMainWindow):
                 ax.loglog([x1, x2], [y1, y2], "--", linewidth=2)
                 ax.text(x2, y2 * 2, r"$k^{-3}$", fontsize=11, ha="left", va="center", color="black")
 
-        meta = self.get_meta()
-        ax.text(
-            0.02, 0.02, meta,
-            transform=ax.transAxes,
-            ha="left", va="bottom",
-            fontsize=10,
-            linespacing=1.5,
-            color="black",
-        )
+        if not modal:
+            meta = self.get_meta()
+            ax.text(
+                0.02, 0.02, meta,
+                transform=ax.transAxes,
+                ha="left", va="bottom",
+                fontsize=10,
+                linespacing=1.5,
+                color="black",
+            )
 
         fig.tight_layout()
         return fig
@@ -869,15 +870,43 @@ class MainWindow(QMainWindow):
         plt.close(fig)
 
     def _show_energy_spectrum_uv(self) -> None:
-        """Render the energy spectrum to a modal dialog (no file write)."""
+        """Open a persistent (non-modal) energy spectrum dialog that auto-refreshes."""
+        if hasattr(self, '_spectrum_dlg') and self._spectrum_dlg is not None:
+            if self._spectrum_dlg.isVisible():
+                self._spectrum_dlg.close()
+                self._spectrum_dlg = None
+                return
+
+        from PySide6.QtWidgets import QDialog, QVBoxLayout as QVBox
+
+        dlg = QDialog(self)
+        dlg.setWindowTitle("Energy Spectrum")
+        dlg.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose)
+        QShortcut(QKeySequence("Ctrl+W"), dlg, dlg.close)
+        lay = QVBox(dlg)
+        lbl = QLabel()
+        lay.addWidget(lbl)
+        self._spectrum_dlg = dlg
+        self._spectrum_lbl = lbl
+        dlg.destroyed.connect(self._on_spectrum_dlg_destroyed)
+        self._refresh_spectrum()
+        dlg.show()
+
+    def _on_spectrum_dlg_destroyed(self) -> None:
+        self._spectrum_dlg = None
+        self._spectrum_lbl = None
+
+    def _refresh_spectrum(self) -> None:
+        """Redraw the energy spectrum into the persistent dialog label."""
+        if not hasattr(self, '_spectrum_dlg') or self._spectrum_dlg is None:
+            return
         import matplotlib.pyplot as plt
         from matplotlib.backends.backend_agg import FigureCanvasAgg
-        from PySide6.QtWidgets import QDialog, QVBoxLayout as QVBox
         from PySide6.QtGui import QImage as QImg, QPixmap as QPix
 
         u = self._get_full_field("u")
         v = self._get_full_field("v")
-        fig = self._make_energy_spectrum_fig(u, v)
+        fig = self._make_energy_spectrum_fig(u, v, modal=True)
         if fig is None:
             return
 
@@ -889,16 +918,8 @@ class MainWindow(QMainWindow):
         pixmap = QPix.fromImage(qimg)
         plt.close(fig)
 
-        dlg = QDialog(self)
-        dlg.setWindowTitle("Energy Spectrum")
-        from PySide6.QtGui import QShortcut, QKeySequence
-        QShortcut(QKeySequence("Ctrl+W"), dlg, dlg.close)
-        lay = QVBox(dlg)
-        lbl = QLabel()
-        lbl.setPixmap(pixmap)
-        lay.addWidget(lbl)
-        dlg.resize(pixmap.size())
-        dlg.exec()
+        self._spectrum_lbl.setPixmap(pixmap)
+        self._spectrum_dlg.resize(pixmap.size())
 
     def on_spectrum_clicked(self) -> None:
         self._show_energy_spectrum_uv()
@@ -1586,6 +1607,8 @@ class MainWindow(QMainWindow):
         qimg.setColorTable(table)
         pix = QPixmap.fromImage(qimg, Qt.ImageConversionFlag.NoFormatConversion)
         self.image_label.setPixmap(pix)
+
+        self._refresh_spectrum()
 
     def _update_status(self, t: float, it: int, fps: Optional[float]) -> None:
         fps_str = f"{fps:5.2f}" if fps is not None else " N/A"
