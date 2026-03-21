@@ -254,6 +254,10 @@ class PostProcessWindow(QMainWindow):
         # --- central image label ---
         self.image_label = QLabel()
         self.image_label.setContentsMargins(0, 0, 0, 0)
+        self.image_label.setSizePolicy(
+            self.image_label.sizePolicy().horizontalPolicy(),
+            self.image_label.sizePolicy().verticalPolicy()
+        )
         self.image_label.setMinimumSize(1, 1)
         self.image_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
@@ -372,6 +376,17 @@ class PostProcessWindow(QMainWindow):
         qimg.setColorTable(table)
         pix = QPixmap.fromImage(qimg, Qt.ImageConversionFlag.NoFormatConversion)
         self.image_label.setPixmap(pix)
+
+        # Resize window to fit the image (same logic as turbo_main.py)
+        new_w = pix.width() + 40
+        new_h = pix.height() + 120
+        self.setMinimumSize(0, 0)
+        self.setMaximumSize(16777215, 16777215)
+        self.resize(new_w, new_h)
+        screen = QApplication.primaryScreen().availableGeometry()
+        g = self.geometry()
+        g.moveCenter(screen.center())
+        self.setGeometry(g)
 
     # ------------------------------------------------------------------
     def on_cmap_changed(self, name: str) -> None:
