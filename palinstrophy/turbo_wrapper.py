@@ -187,20 +187,25 @@ class DnsSimulator:
         self.py = self.nx
         self.px = self.ny
 
-        # Reset integrator scalars like in reset_field()
-        if self.state.backend == "cpu":
-            with spfft.set_workers(self.fft_workers):
+        # Reset integrator scalars like in reset_field().
+        # When loading a saved case (skip_pao=True) the spectral arrays are
+        # still all-zero at this point, so step2a/compute_cflm would yield
+        # CFLM=0 and a ZeroDivisionError.  The caller will overwrite dt/cn
+        # from the parquet metadata, so we can safely skip this block.
+        if not skip_pao:
+            if self.state.backend == "cpu":
+                with spfft.set_workers(self.fft_workers):
+                    dns_all.dns_step2a(self.state)
+                    CFLM = dns_all.compute_cflm(self.state)
+            else:
                 dns_all.dns_step2a(self.state)
                 CFLM = dns_all.compute_cflm(self.state)
-        else:
-            dns_all.dns_step2a(self.state)
-            CFLM = dns_all.compute_cflm(self.state)
 
-        if self.state.backend == "gpu":
-            CFLM_h = float(CFLM.item()) if hasattr(CFLM, "item") else float(CFLM)
-            self.state.dt = float(self.state.cflnum) / (CFLM_h * math.pi)
-        else:
-            self.state.dt = self.state.cflnum / (CFLM * math.pi)
+            if self.state.backend == "gpu":
+                CFLM_h = float(CFLM.item()) if hasattr(CFLM, "item") else float(CFLM)
+                self.state.dt = float(self.state.cflnum) / (CFLM_h * math.pi)
+            else:
+                self.state.dt = self.state.cflnum / (CFLM * math.pi)
 
         self.state.cn = 1.0
         self.state.cnm1 = 0.0
