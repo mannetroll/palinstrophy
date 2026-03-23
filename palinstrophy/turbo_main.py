@@ -1027,7 +1027,7 @@ class MainWindow(QMainWindow):
     def _complex_array_to_table(arr):
         """Flatten a complex ndarray and return a pyarrow Table with real/imag columns."""
         import pyarrow as pa
-        flat = np.asarray(arr).ravel()
+        flat = (arr.get() if hasattr(arr, 'get') else np.asarray(arr)).ravel()
         return pa.table({"real": flat.real, "imag": flat.imag})
 
     def _dump_restart_parquet(self, folder_path: str):
@@ -1066,9 +1066,9 @@ class MainWindow(QMainWindow):
 
         # 5) store array shapes so the loader can reshape
         shapes = pa.table({
-            "uc_shape": [str(np.asarray(S.uc).shape)],
-            "om2_shape": [str(np.asarray(S.om2).shape)],
-            "fnm1_shape": [str(np.asarray(S.fnm1).shape)],
+            "uc_shape": [str(S.uc.shape)],
+            "om2_shape": [str(S.om2.shape)],
+            "fnm1_shape": [str(S.fnm1.shape)],
         })
         pq.write_table(shapes, os.path.join(folder_path, "restart_shapes.parquet"), compression="zstd")
 
