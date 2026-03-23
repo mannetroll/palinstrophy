@@ -1185,6 +1185,12 @@ class MainWindow(QMainWindow):
         self.sim.cn = cn
         self.sim.iteration = it
 
+        # 6b) scatter compact uc (NZ, NK, 3) into full grid uc_full (3, NZ_full, NK_full)
+        #     dns_step2a reads from uc_full, so it must reflect the loaded uc.
+        S.uc_full[...] = 0
+        NK = S.NK
+        S.uc_full[:, :S.NZ, :NK] = xp.transpose(S.uc, (2, 0, 1))
+
         # 7) rebuild physical fields from spectral
         from palinstrophy import turbo_simulator as dns_all
         import scipy.fft as spfft
