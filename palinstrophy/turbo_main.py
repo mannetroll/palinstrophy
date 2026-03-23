@@ -1114,6 +1114,7 @@ class MainWindow(QMainWindow):
 
         # 1) read scalar metadata
         meta = pq.read_table(meta_path).to_pydict()
+        print(f"[LOAD] Read {meta_path}")
         N = int(meta["Nbase"][0])
         Re = float(meta["Re"][0])
         K0 = float(meta["K0"][0])
@@ -1127,14 +1128,18 @@ class MainWindow(QMainWindow):
         it = int(meta["it"][0])
 
         # 2) read shapes
-        shapes = pq.read_table(os.path.join(folder_path, "restart_shapes.parquet")).to_pydict()
+        shapes_path = os.path.join(folder_path, "restart_shapes.parquet")
+        shapes = pq.read_table(shapes_path).to_pydict()
+        print(f"[LOAD] Read {shapes_path}")
         uc_shape = ast.literal_eval(shapes["uc_shape"][0])
         om2_shape = ast.literal_eval(shapes["om2_shape"][0])
         fnm1_shape = ast.literal_eval(shapes["fnm1_shape"][0])
 
         # 3) read complex arrays
         def _read_complex(name, shape):
-            tbl = pq.read_table(os.path.join(folder_path, name)).to_pydict()
+            path = os.path.join(folder_path, name)
+            tbl = pq.read_table(path).to_pydict()
+            print(f"[LOAD] Read {path}")
             real = np.array(tbl["real"], dtype=np.float32)
             imag = np.array(tbl["imag"], dtype=np.float32)
             return (real + 1j * imag).reshape(shape)
