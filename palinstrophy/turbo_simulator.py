@@ -522,6 +522,7 @@ def create_dns_state(
     CFL: float = 0.75,
     backend: Literal["cpu", "gpu", "auto"] = "auto",
     seed: int = 1,
+    skip_pao: bool = False,
 ) -> DnsState:
     xp = get_xp(backend)
 
@@ -616,7 +617,7 @@ def create_dns_state(
         print(f"FFT workers (CPU): {state.fft_workers}")
 
     # PAO-style initialization (dnsCudaPaoHostInit)
-    dns_pao_host_init(state)
+    dns_pao_host_init(state, skip_pao=skip_pao)
 
     # DT and CN will be initialized in run_dns via CFL (like CUDA)
     state.dt = 0.0
@@ -686,7 +687,7 @@ def create_dns_state(
 # ===============================================================
 # Python/Numpy/Scipy port of dnsCudaPaoHostInit, wired into DnsState
 # ===============================================================
-def dns_pao_host_init(S: DnsState):
+def dns_pao_host_init(S: DnsState, skip_pao: bool = False):
     xp = S.xp
     N = S.NX
     NE = S.NZ
@@ -720,6 +721,15 @@ def dns_pao_host_init(S: DnsState):
     for z in range(1, NED2 + 1):
         gamma[z] = np.float32(z) * DGAMMA
         gamma[NE - z] = -gamma[z]
+
+    # When loading a saved case we only need alfa/gamma; skip the
+    # expensive random-spectrum generation whose results will be
+    # overwritten by the parquet data anyway.
+    if skip_pao:
+        S.alfa = xp.asarray(alfa, dtype=xp.float32)
+        S.gamma = xp.asarray(gamma, dtype=xp.float32)
+        print(" PAO spectrum skipped (loading saved case)")
+        return
 
     # ------------------------------------------------------------------
     # Host spectral UR: complex field UR(kx,z,comp)

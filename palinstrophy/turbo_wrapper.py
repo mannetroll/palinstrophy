@@ -150,7 +150,7 @@ class DnsSimulator:
         self.cn = float(S.cn)
         self.iteration += 1
 
-    def set_N(self, N: int) -> None:
+    def set_N(self, N: int, skip_pao: bool = False) -> None:
         start = perf_counter()
         """Recreate the entire DNS state with a new grid size N."""
         self.N = int(N)
@@ -165,6 +165,7 @@ class DnsSimulator:
                 CFL=self.cfl,
                 backend="auto",
                 seed=self.seed,
+                skip_pao=skip_pao,
             )
 
         # DEBUG: print full-grid sizes

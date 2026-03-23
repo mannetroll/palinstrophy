@@ -1148,11 +1148,11 @@ class MainWindow(QMainWindow):
         om2_data = _read_complex("restart_om2.parquet", om2_shape)
         fnm1_data = _read_complex("restart_fnm1.parquet", fnm1_shape)
 
-        # 4) recreate state with matching N (this does full init)
+        # 4) recreate state with matching N (skip random spectrum – loaded data replaces it)
         self.sim.re = Re
         self.sim.k0 = K0
         self.sim.cfl = cflnum
-        self.sim.set_N(N)
+        self.sim.set_N(N, skip_pao=True)
 
         S = self.sim.state
         xp = S.xp
