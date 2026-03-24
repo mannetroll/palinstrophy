@@ -604,7 +604,7 @@ class MainWindow(QMainWindow):
         row1.addWidget(self.load_button)
         row1.addWidget(self.spectrum_button)
         row1.addWidget(self.metrics_button)
-        row1.addSpacing(5)
+        row1.addSpacing(1)
         row1.addWidget(self.n_combo)
         row1.addWidget(self.variable_combo)
         row1.addWidget(self.cmap_combo)
