@@ -1109,6 +1109,7 @@ class MainWindow(QMainWindow):
         self._load_restart_parquet(folder_path)
 
     def _load_restart_parquet(self, folder_path: str):
+        t_wall_start = time.time()
         import pyarrow.parquet as pq
         import ast
 
@@ -1244,7 +1245,8 @@ class MainWindow(QMainWindow):
         if self._any_modal_active():
             self._position_modals()
 
-        print(f"[LOAD] Restored case from {folder_path}: N={N}, Re={Re:.4e}, K0={K0}, t={t:.6e}, it={it}")
+        wall_sec = time.time() - t_wall_start
+        print(f"[LOAD] Restored case from {folder_path}: N={N}, Re={Re:.4e}, K0={K0}, t={t:.6e}, it={it} ({wall_sec:.2f}s)")
 
     def _make_metrics_fig(self, modal: bool = False):
         """Build the metrics figure and return it, or None if not enough data."""
