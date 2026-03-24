@@ -818,6 +818,11 @@ class MainWindow(QMainWindow):
             esum = esum.get()
             good = good.get()
 
+        # Free GPU memory used by intermediate arrays
+        del u, v, U, V, P, kx, kz, KZ, KX, R, mask, r, p, idx, cnt
+        if xp is not np:
+            xp.get_default_memory_pool().free_all_blocks()
+
         # Bin centers in a normalized radius (always CPU for plotting)
         r_edges = np.linspace(0.0, r_max, nbins + 1)
         r_centers = 0.5 * (r_edges[:-1] + r_edges[1:])
