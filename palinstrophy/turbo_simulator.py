@@ -1103,7 +1103,7 @@ def dns_step3(S: DnsState, fuse: bool = True) -> None:
                 const float* inv_gamma0,
                 complex<float>* out1,
                 complex<float>* out2,
-                int NX_half, int NZ
+                int NX_half, int NZ, int NK_full
             ) {
                 int idx = (int)(blockIdx.x * blockDim.x + threadIdx.x);
                 int n = NZ * NX_half;
@@ -1136,8 +1136,9 @@ def dns_step3(S: DnsState, fuse: bool = True) -> None:
                     o2 = m2 * (invk2 * ax);
                 }
 
-                out1[idx] = o1;
-                out2[idx] = o2;
+                int oidx = z * NK_full + k;
+                out1[oidx] = o1;
+                out2[oidx] = o2;
             }
             ''', "turbo_step3_build_uc01")
 
@@ -1181,7 +1182,8 @@ def dns_step3(S: DnsState, fuse: bool = True) -> None:
             ),
         )
 
-        # BUILD: out1/out2 (scratch1/2) from updated om2
+        # BUILD: write directly into uc_full[0/1] low-k band at stride NK_full,
+        # fusing the scatter so scratch1/scratch2 aren't touched on the GPU path.
         _STEP3_BUILD_UC_KERNEL(
             (blocks,),
             (threads,),
@@ -1191,13 +1193,11 @@ def dns_step3(S: DnsState, fuse: bool = True) -> None:
                 S.gamma,
                 S.alfa,
                 S.step3_inv_gamma0,
-                S.scratch1,
-                S.scratch2,
-                NX_half_i32, NZ_i32,
+                uc_full[0],
+                uc_full[1],
+                NX_half_i32, NZ_i32, NK_full_i32,
             ),
-        )# Scatter into uc_full low-k band (strided in NK_full, keep the simple slice assign)
-        uc_full[0, :NZ, :NX_half] = S.scratch1
-        uc_full[1, :NZ, :NX_half] = S.scratch2
+        )
 
         S.cnm1 = float(S.cn)
         return
