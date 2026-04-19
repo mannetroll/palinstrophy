@@ -1643,8 +1643,8 @@ def main():
     N = int(args[0]) if len(args) > 0 else 512
     Re = float(args[1]) if len(args) > 1 else 10000
     K0 = float(args[2]) if len(args) > 2 else 10.0
-    STEPS = int(args[3]) if len(args) > 3 else 101
-    CFL = float(args[4]) if len(args) > 4 else 0.75
+    STEPS = int(args[3]) if len(args) > 3 else 1001
+    CFL = float(args[4]) if len(args) > 4 else 0.25
 
     BACK = args[5].lower() if len(args) > 5 else "auto"
     if BACK not in ("cpu", "gpu", "auto"):
