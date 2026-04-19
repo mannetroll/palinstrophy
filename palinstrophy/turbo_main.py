@@ -450,7 +450,7 @@ class MainWindow(QMainWindow):
         self.re_edit = QLineEdit()
         self.re_edit.setToolTip("Reynolds Number (Re)")
         self.re_edit.setReadOnly(True)
-        self.re_edit.setFixedWidth(120)
+        self.re_edit.setFixedWidth(95)
         self.re_edit.setText(str(self.sim.re))
 
         # K0 selector
@@ -500,6 +500,14 @@ class MainWindow(QMainWindow):
             self.cfl_combo.setStyle(QStyleFactory.create(FUSION))
             self.steps_combo.setStyle(QStyleFactory.create(FUSION))
             self.update_combo.setStyle(QStyleFactory.create(FUSION))
+
+        # Lower combobox font size by 2pt so all controls fit on one row
+        for combo in (self.variable_combo, self.n_combo, self.k0_combo,
+                      self.cmap_combo, self.cfl_combo, self.steps_combo,
+                      self.update_combo):
+            f = combo.font()
+            f.setPointSize(11)
+            combo.setFont(f)
 
         self._build_layout()
 
@@ -586,7 +594,7 @@ class MainWindow(QMainWindow):
 
         # Button row
         row1 = QHBoxLayout()
-        row1.setContentsMargins(10, 0, 0, 0)
+        row1.setContentsMargins(5, 0, 0, 0)
         row1.setAlignment(Qt.AlignmentFlag.AlignLeft)
         row1.addWidget(self.start_button)
         row1.addWidget(self.stop_button)
@@ -596,25 +604,18 @@ class MainWindow(QMainWindow):
         row1.addWidget(self.load_button)
         row1.addWidget(self.spectrum_button)
         row1.addWidget(self.metrics_button)
+        row1.addSpacing(1)
+        row1.addWidget(self.n_combo)
+        row1.addWidget(self.variable_combo)
+        row1.addWidget(self.cmap_combo)
+        row1.addWidget(self.re_edit)
+        row1.addWidget(self.k0_combo)
+        row1.addWidget(self.cfl_combo)
+        row1.addWidget(self.update_combo)
+        row1.addWidget(self.steps_combo)
+        row1.addWidget(self.auto_reset_checkbox)
         row1.addStretch(1)
         main.addLayout(row1)
-
-        # Combobox row
-        row2 = QHBoxLayout()
-        row2.setContentsMargins(10, 0, 0, 0)
-        row2.setAlignment(Qt.AlignmentFlag.AlignLeft)
-        row2.addWidget(self.n_combo)
-        row2.addWidget(self.variable_combo)
-        row2.addWidget(self.cmap_combo)
-        row2.addWidget(self.re_edit)
-        row2.addWidget(self.k0_combo)
-        row2.addWidget(self.cfl_combo)
-        row2.addWidget(self.update_combo)
-        row2.addWidget(self.steps_combo)
-        row2.addSpacing(5)
-        row2.addWidget(self.auto_reset_checkbox)
-        row2.addStretch(1)
-        main.addLayout(row2)
 
         self.setCentralWidget(central)
 

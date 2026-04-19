@@ -873,18 +873,18 @@ def vfft_full_inverse_uc_full_to_ur_full(S: DnsState) -> None:
 
     UC01 = UC[0:2, :, :]
 
+    # norm='forward' skips the default 1/N irfft2 scaling so we get the
+    # unnormalized result directly — saves one full pass over ur_full.
     if S.backend == "cpu":
-        ur01 = fft.irfft2(UC01, s=(S.NZ_full, S.NX_full), axes=(1, 2), overwrite_x=True)
+        ur01 = fft.irfft2(UC01, s=(S.NZ_full, S.NX_full), axes=(1, 2), overwrite_x=True, norm='forward')
     else:
         plan = S.fft_plan_irfft2_uc01
         if plan is not None:
-            ur01 = fft.irfft2(UC01, s=(S.NZ_full, S.NX_full), axes=(1, 2), plan=plan)
+            ur01 = fft.irfft2(UC01, s=(S.NZ_full, S.NX_full), axes=(1, 2), plan=plan, norm='forward')
         else:
-            ur01 = fft.irfft2(UC01, s=(S.NZ_full, S.NX_full), axes=(1, 2))
+            ur01 = fft.irfft2(UC01, s=(S.NZ_full, S.NX_full), axes=(1, 2), norm='forward')
 
-    # Match previous STEP2A behavior exactly: scale BEFORE float32 cast/assign.
-    scale = xp.float32(S.NZ_full * S.NX_full)
-    xp.multiply(ur01, scale, out=S.ur_full[0:2, :, :])
+    S.ur_full[0:2, :, :] = ur01
     S.ur_full[2, :, :] = xp.float32(0.0)
 
 
@@ -1528,11 +1528,10 @@ def _spectral_band_to_phys_full_grid(S: DnsState, band) -> any:
     fft = S.fft
 
     if S.backend == "cpu":
-        phys = fft.irfft2(uc_tmp, s=(NZ_full, NX_full), axes=(0, 1), overwrite_x=True, workers=S.fft_workers)
+        phys = fft.irfft2(uc_tmp, s=(NZ_full, NX_full), axes=(0, 1), overwrite_x=True, workers=S.fft_workers, norm='forward')
     else:
-        phys = fft.irfft2(uc_tmp, s=(NZ_full, NX_full), axes=(0, 1), overwrite_x=True)
+        phys = fft.irfft2(uc_tmp, s=(NZ_full, NX_full), axes=(0, 1), overwrite_x=True, norm='forward')
 
-    phys *= (NZ_full * NX_full)
     return xp.asarray(phys, dtype=xp.float32)
 
 
