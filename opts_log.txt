@@ -25,3 +25,31 @@ The CPU gain is only the one extra memory-bandwidth pass — no kernel-launch ov
 •
 SciPy on the CPU is already near memory-bandwidth bound for these elementwise ops, so savings are small and single-digit percent at best.
 So: #2 is a solid GPU-only win. For the CPU, I wouldn't bother unless a profile says the scatter shows up — time is better spent elsewhere.
+
+
+
+At N=9216 the picture flips — kernel launch overhead is noise compared to FFT/memory-bandwidth cost. So the opts_log.txt items matter less:
+Low/no impact at N=9216:
+•
+#1 CUDA Graphs — near zero. Each FFT takes tens of ms; launches are microseconds.
+•
+#3 Zeroing fusion — near zero for the same reason.
+What actually matters at this size:
+•
+FFT output copies (turbo_simulator.py:887 and 915). Per iteration you pay:
+◦
+S.ur_full[0:2, :, :] = ur01 — ~2 GB write after irfft2
+◦
+S.uc_full[...] = UC — ~2.3 GB write after rfft2
+The FFT allocates a new output array, then you copy it in. Use cupyx.scipy.fftpack.get_fft_plan and call plan directly with a pre-allocated output buffer, or drop to the low-level cufft.Plan* API to write in-place. Saves ~4 GB of bandwidth per step.
+•
+Memory budget is tight. At N=9216 on 24 GB:
+◦
+ur_full ~2.3 GB, uc_full ~2.3 GB, om2+fnm1 ~680 MB, scratch1/2 ~680 MB, step3 temps (ARG/DEN/NUM/uc*_th/GA/G2mA2/K2/invK2_sub) ~500 MB–1 GB, cuFFT workspace for 13824² rfft2 can be several GB.
+Worth measuring cupy.get_default_memory_pool().used_bytes() after init. If you're near the ceiling, consolidating ARG/DEN/NUM into fewer buffers (they're used sequentially in step3) frees another few hundred MB.
+•
+FFT plan caching — verify both plans (fft_plan_rfft2_ur_full, fft_plan_irfft2_uc01) are actually populated and reused. At this size, plan re-creation is catastrophic.
+•
+CPU path double-scatter (line 1289-1290) — at N=9216 on CPU the extra 680 MB copy is real; still dwarfed by FFTs, but no longer negligible. Only worth touching if you run CPU at this size (you probably don't).
+Bottom line: Eliminating the two FFT output copies is the one meaningful win for N=9216. Everything in opts_log.txt targets small-N launch overhead.
+
