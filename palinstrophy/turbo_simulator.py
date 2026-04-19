@@ -885,7 +885,6 @@ def vfft_full_inverse_uc_full_to_ur_full(S: DnsState) -> None:
             ur01 = fft.irfft2(UC01, s=(S.NZ_full, S.NX_full), axes=(1, 2), norm='forward')
 
     S.ur_full[0:2, :, :] = ur01
-    S.ur_full[2, :, :] = xp.float32(0.0)
 
 
 def vfft_full_forward_ur_full_to_uc_full(S: DnsState) -> None:
