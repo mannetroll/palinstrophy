@@ -848,14 +848,14 @@ def dns_pao_host_init(S: DnsState, skip_pao: bool = False):
     S.uc_full[...] = xp.transpose(UC_full_xp, (2, 1, 0))  # (3,NZ_full,NK_full)
 
     # ------------------------------------------------------------------
-    # Build initial UR_full & om2 from UC_full (for the rest of the solver)
+    # Build initial om2 from UC_full (for the rest of the solver)
     # ------------------------------------------------------------------
-    # Inverse transform UC_full → UR_full for diagnostics / STEP2B input
-    print(f" vfft_full_inverse_uc_full_to_ur_full(S)")
-    vfft_full_inverse_uc_full_to_ur_full(S)
-
-    # Spectral vorticity from UC_full, like dnsCudaCalcom
-    #print(f" dns_calcom_from_uc_full(S)")
+    # Spectral vorticity from pristine UC_full. Callers always run dns_step2a
+    # immediately after create_dns_state, which dealiases UC_full[0:2] and
+    # runs the inverse FFT — so there is no need to populate UR_full here.
+    # (Avoiding the extra inverse FFT also keeps UC_full[0:2] pristine: the
+    # GPU inverse path now writes directly into ur_full[0:2] via plan.fft,
+    # which lets cuFFT clobber its input buffer.)
     dns_calcom_from_uc_full(S)
 
     # No history yet
@@ -867,7 +867,6 @@ def dns_pao_host_init(S: DnsState, skip_pao: bool = False):
 # ---------------------------------------------------------------------------
 
 def vfft_full_inverse_uc_full_to_ur_full(S: DnsState) -> None:
-    xp = S.xp
     UC = S.uc_full
     fft = S.fft
 
@@ -877,14 +876,18 @@ def vfft_full_inverse_uc_full_to_ur_full(S: DnsState) -> None:
     # unnormalized result directly — saves one full pass over ur_full.
     if S.backend == "cpu":
         ur01 = fft.irfft2(UC01, s=(S.NZ_full, S.NX_full), axes=(1, 2), overwrite_x=True, norm='forward')
+        S.ur_full[0:2, :, :] = ur01
     else:
         plan = S.fft_plan_irfft2_uc01
         if plan is not None:
-            ur01 = fft.irfft2(UC01, s=(S.NZ_full, S.NX_full), axes=(1, 2), plan=plan, norm='forward')
+            # Execute the C2R plan directly into ur_full[0:2]. This bypasses
+            # cupyx.scipy.fft.irfft2's internal allocation + copy of the FFT
+            # output into our pre-allocated ur_full slice — the dominant cost
+            # at large N. Raw cuFFT applies no scaling, matching norm='forward'.
+            plan.fft(UC01, S.ur_full[0:2], _cp.cuda.cufft.CUFFT_INVERSE)
         else:
             ur01 = fft.irfft2(UC01, s=(S.NZ_full, S.NX_full), axes=(1, 2), norm='forward')
-
-    S.ur_full[0:2, :, :] = ur01
+            S.ur_full[0:2, :, :] = ur01
 
 
 def vfft_full_forward_ur_full_to_uc_full(S: DnsState) -> None:
@@ -904,15 +907,16 @@ def vfft_full_forward_ur_full_to_uc_full(S: DnsState) -> None:
     if S.backend == "cpu":
         # overwrite_x is safe here (UR_full is overwritten later by STEP2A anyway)
         UC = fft.rfft2(UR, s=(S.NZ_full, S.NX_full), axes=(1, 2), overwrite_x=True, workers=S.fft_workers)
+        S.uc_full[...] = UC
     else:
         plan = S.fft_plan_rfft2_ur_full
         if plan is not None:
-            UC = fft.rfft2(UR, s=(S.NZ_full, S.NX_full), axes=(1, 2), plan=plan, overwrite_x=True)
+            # Execute the R2C plan directly into uc_full. Skips the internal
+            # allocation + copy that cupyx.scipy.fft.rfft2 would do.
+            plan.fft(UR, S.uc_full, _cp.cuda.cufft.CUFFT_FORWARD)
         else:
             UC = fft.rfft2(UR, s=(S.NZ_full, S.NX_full), axes=(1, 2), overwrite_x=True)
-
-    # Assign back; uc_full is complex64, assignment will down-cast if needed
-    S.uc_full[...] = UC
+            S.uc_full[...] = UC
 
 
 # ---------------------------------------------------------------------------
