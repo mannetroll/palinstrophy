@@ -1,0 +1,27 @@
+Looking at the GPU hot path, I see a few remaining opportunities beyond what you've already done. In rough order of expected payoff:
+1. CUDA Graphs (biggest win for small N) Your step2b → step3 → step2a sequence launches ~8–12 kernels per iteration with identical arguments every step. Capturing this with cupy.cuda.Stream.begin_capture() and replaying the graph eliminates the Python/CuPy launch overhead, which dominates when kernels are short. Just re-capture when dt/cn/cnm1 are materialized into GPU constant buffers instead of scalar args — or use a small staging buffer updated in-place.
+2. Fuse the scatter into _STEP3_BUILD_UC_KERNEL — turbo_simulator.py:1199-1200 You write scratch1/scratch2 then copy them into uc_full[0/1, :NZ, :NX_half]. The build kernel already knows z,k; have it write directly to uc_full[0] and uc_full[1] at stride NK_full, drop scratch1/2, and save two strided copy launches per step.
+3. Fuse the small zeroing ops
+•
+turbo_simulator.py:1032 — UC[0:3, z_mid, 0:kx_max] = 0 (step2b tail)
+•
+turbo_simulator.py:1313 — UC[0:2, :, hi_start:hi_end+1] = 0 and the z-band reshuffle 1322-1323 (step2a dealias)
+These are all small strided kernel launches. Either a single turbo_dealias RawKernel, or fold the step2a reshuffle+zero into the BUILD kernel (it can emit the dealiased layout directly).
+4. norm='forward' on irfft2 — turbo_simulator.py:885-888 You multiply by NZ_full * NX_full after irfft2 to undo cuFFT's normalization. Passing norm='forward' to cupyx.scipy.fft.irfft2 avoids the division and removes the post-FFT multiply pass. The plan survives the norm change; the ur_full[2] = 0 can then fold into the STEP2A_CROP kernel.
+5. dns_step2a CROP kernel already handles ur[2]=0 — good; you could also drop S.ur_full[2, :, :] = 0 at line 888 since STEP2A overwrites it anyway.
+Want me to implement any of these? #2 and #4 are the safest quick wins; #1 is the largest but touches scalar-parameter plumbing.
+
+
+
+No — #2 as proposed is GPU-only. It fuses work into _STEP3_BUILD_UC_KERNEL, which is a CuPy RawKernel and doesn't exist on the CPU path.
+The CPU path at turbo_simulator.py:1290-1291 does the same scatter:
+uc_full[0, :NZ, :NX_half] = out1
+uc_full[1, :NZ, :NX_half] = out2
+You could make a CPU-side analogue — write results directly into uc_full[0, :NZ, :NX_half] (and [1,...]) instead of going via scratch1/scratch2. But:
+•
+The scratch buffers are reused earlier in step3 (as tmp_FN/tmp_c), so eliminating them cleanly means introducing a different scratch buffer for that arithmetic.
+•
+The CPU gain is only the one extra memory-bandwidth pass — no kernel-launch overhead to avoid. In practice that's dwarfed by the FFTs.
+•
+SciPy on the CPU is already near memory-bandwidth bound for these elementwise ops, so savings are small and single-digit percent at best.
+So: #2 is a solid GPU-only win. For the CPU, I wouldn't bother unless a profile says the scatter shows up — time is better spent elsewhere.
