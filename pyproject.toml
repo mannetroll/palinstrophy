@@ -3,7 +3,7 @@ name = "mannetroll-palinstrophy"
 version = "0.1.4"
 description = "2D Turbulence (SciPy + CuPy)"
 readme = "README.md"
-requires-python = ">=3.13,<3.14"
+requires-python = ">=3.14,<3.15"
 license = "MIT"
 license-files = ["LICENSE"]
 
@@ -24,8 +24,8 @@ dependencies = [
 # Optional GPU extra
 [project.optional-dependencies]
 cuda = [
-  "cupy-cuda13x>=13.6.0; sys_platform != 'darwin'",
-  "fastrlock>=0.8",
+  "cupy-cuda13x>=14.0.1; sys_platform != 'darwin'",
+  "fastrlock>=0.8; sys_platform != 'darwin'"
 ]
 
 [project.scripts]
