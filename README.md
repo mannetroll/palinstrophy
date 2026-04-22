@@ -211,6 +211,28 @@ A dashed reference slope k⁻³ is drawn (anchored at the spectral peak) to comp
 ![compare](https://raw.githubusercontent.com/mannetroll/palinstrophy/v0.1.4/compare.png)
 
 
+## Parquet Restart
+
+Every time you save a case (PGM dump) from the GUI, five [Apache Parquet](https://parquet.apache.org/) restart files are written alongside the image files in the same folder, all compressed with **zstd**:
+
+| File | Contents |
+|------|----------|
+| `restart_meta.parquet` | Scalar metadata: `N`, `Re`, `K0`, `visc`, `CFL`, `seed_init`, `t`, `dt`, `cn`, `cnm1`, `it` |
+| `restart_shapes.parquet` | Array shapes needed to reconstruct the spectral fields |
+| `restart_uc.parquet` | Spectral velocity `uc` — shape `(NZ, NK, 3)`, complex64 |
+| `restart_om2.parquet` | Spectral vorticity `om2` — shape `(NZ, NX_half)`, complex64 |
+| `restart_fnm1.parquet` | Nonlinear history term `fnm1` — shape `(NZ, NX_half)`, complex64 |
+
+### Loading a restart
+
+Click the **folder icon** (Load button) in the GUI toolbar. A directory picker opens; select any saved case folder that contains `restart_meta.parquet`. The solver re-initialises with the exact grid size and parameters from the snapshot, restores all spectral arrays, and resumes time-stepping from the saved iteration and simulation time — no random re-initialisation.
+
+This lets you:
+
+- Continue a long run interrupted by a machine restart or out-of-memory event
+- Switch backend (CPU ↔ GPU) between runs
+- Branch from the same flow snapshot at different Reynolds numbers or CFL values
+
 ## License
 
 Copyright © 2026 mannetroll
