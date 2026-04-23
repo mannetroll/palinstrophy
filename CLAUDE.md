@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Direct Numerical Simulation (DNS) of 2D homogeneous incompressible turbulence using spectral (Fourier) methods. The solver supports CPU (NumPy/SciPy) and GPU (CuPy/CUDA) backends behind the same API — array ops go through an `xp` alias that resolves to `numpy` or `cupy`.
 
-Python is pinned to exactly 3.14 in `pyproject.toml`. CuPy and Numba are optional; code paths degrade gracefully if they are absent.
+Python is pinned to exactly 3.13 in `pyproject.toml`. CuPy and Numba are optional; code paths degrade gracefully if they are absent.
 
 ## Setup and Commands
 
