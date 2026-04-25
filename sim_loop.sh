@@ -29,7 +29,7 @@ for N in 1024 1536 2048 3072 4096 8192; do
 
     echo "Running N=${N} K=${K} RE=${RE} ..."
     # N K RE STEPS CFL backend UPDATE ITERATIONS
-    PYTHONUNBUFFERED=1 uv run -- turbulence "$N" "$K" "$RE" 3E5 0.1 auto 10 1000000 2>&1 \
+    PYTHONUNBUFFERED=1 uv run -- turbulence "$N" "$K" "$RE" 1E7 0.1 auto 10 1000000 2>&1 \
       | stdbuf -oL -eL tee -a "$LOG" \
       | awk -v csv="$CSV" '
           $0=="N, K0, Re, CFL, VISC, STEPS, PALIN, SIG, TIME, MINUTES, FPS" { grab=1; next }
