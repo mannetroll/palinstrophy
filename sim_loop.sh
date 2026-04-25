@@ -20,16 +20,16 @@ rm -f output_N*
 CSV="sim_metadata.csv"
 echo "N, K0, Re, CFL, VISC, STEPS, PALIN, SIG, TIME, MINUTES, FPS" > "$CSV"
 
-for N in 256 384 512 768 1024 1536 2048 3072 4096; do
+for N in 1024 1536 2048 3072 4096 8192; do
   # shellcheck disable=SC2043
-  for K in 5 15; do
+  for K in 2 4; do
     LOG="output_N${N}_K${K}.log"
 
     RE="$(Re_from_N_K0 "$N" "$K")"
 
     echo "Running N=${N} K=${K} RE=${RE} ..."
     # N K RE STEPS CFL backend UPDATE ITERATIONS
-    PYTHONUNBUFFERED=1 uv run -- turbulence "$N" "$K" "$RE" 3E5 0.1 auto 10 100000 2>&1 \
+    PYTHONUNBUFFERED=1 uv run -- turbulence "$N" "$K" "$RE" 3E5 0.1 auto 10 1000000 2>&1 \
       | stdbuf -oL -eL tee -a "$LOG" \
       | awk -v csv="$CSV" '
           $0=="N, K0, Re, CFL, VISC, STEPS, PALIN, SIG, TIME, MINUTES, FPS" { grab=1; next }

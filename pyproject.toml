@@ -13,8 +13,8 @@ authors = [
 
 dependencies = [
   "numpy>=2.4.4,<3",
-  "numba>=0.65.0,<1",
-  "matplotlib>=3.10.8,<4",
+  "numba>=0.65.1,<1",
+  "matplotlib>=3.10.9,<4",
   "Pillow>=12.2.0,<13",
   "scipy>=1.17.1,<2",
   "PySide6>=6.11.0,<7",
