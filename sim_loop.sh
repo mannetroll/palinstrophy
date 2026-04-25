@@ -20,7 +20,7 @@ rm -f output_N*
 CSV="sim_metadata.csv"
 echo "N, K0, Re, CFL, VISC, STEPS, PALIN, SIG, TIME, MINUTES, FPS" > "$CSV"
 
-for N in 1024 1536 2048 3072 4096 8192; do
+for N in 1024 2048 4096 8192; do
   # shellcheck disable=SC2043
   for K in 2 4; do
     LOG="output_N${N}_K${K}.log"
