@@ -1,5 +1,5 @@
 """
-turbo_simulator.py — 2D Homogeneous Turbulence DNS (SciPy / CuPy port)
+turbo_simulator.py — 2D Homogeneous Turbulence DNS with selectable PAO start spectrum (SciPy / CuPy port)
 
 This is a structural port of dns_all.cu to Python.
 
@@ -20,6 +20,8 @@ Backends:
 This is now a faithful structural port of dns_all.cu:
 
   • dnsCudaPaoHostInit  → dns_pao_host_init
+  • PAO random phases can keep the original k*exp(-(k/K0)^2) shell shape
+    or be shell-rescaled to an initial k^-3 energy spectrum
   • dnsCudaCalcom       → dns_calcom_from_uc_full
   • dnsCudaStep2A/2B/3  → dns_step2a / dns_step2b / dns_step3
   • next_dt_gpu         → next_dt
@@ -33,7 +35,7 @@ import datetime as _dt
 import math
 import sys
 import time
-from typing import Literal
+from typing import Literal, cast
 
 import numpy as _np
 
@@ -61,6 +63,9 @@ except Exception:  # CuPy is optional
 
 import numpy as np  # in addition to your existing _np alias, this is fine
 
+_TIME_SCALAR_INDEX = {"dt": 0, "cn": 1, "cnm1": 2}
+SPECTRUM = Literal["PAO", "KM3"]
+
 # ===============================================================
 # Optional Numba acceleration (CPU-only) for PAO initialization
 #
@@ -77,6 +82,24 @@ try:
 except Exception:
     _nb = None
 
+def _pao_hash01_impl(x: int, z: int, seed: int, salt: int) -> float:
+    """Deterministic decorrelation hash for PAO k^-3 mode phases/weights."""
+    a = (
+        (float(x) + 1.0) * 12.9898
+        + (float(z) + 1.0) * 78.233
+        + (float(seed) + 1.0) * 0.010001
+        + (float(salt) + 1.0) * 37.719
+    )
+    s = math.sin(a) * 43758.5453123
+    return s - math.floor(s)
+
+
+if _nb is not None:
+    _pao_hash01 = _nb.njit(cache=True)(_pao_hash01_impl)
+else:
+    _pao_hash01 = _pao_hash01_impl
+
+
 def _pao_build_ur_and_stats_impl(
     N: int,
     NE: int,
@@ -85,6 +108,7 @@ def _pao_build_ur_and_stats_impl(
     seed_init: int,
     alfa: np.ndarray,
     gamma: np.ndarray,
+    use_km3_spectrum: bool,
 ):
     """
     Shared PAO core (single source of truth):
@@ -126,6 +150,7 @@ def _pao_build_ur_and_stats_impl(
         RANVEC[i] = np.float32(seed) / np.float32(ID)
 
     NORM = PI * K0 * K0
+    AMP2_FLOOR = np.float32(1.0e-40)
 
     # ------------------------------------------------------------------
     # Host spectral UR: complex field UR(kx,z,comp)
@@ -166,11 +191,15 @@ def _pao_build_ur_and_stats_impl(
                 UR[x, z, 1] = np.complex64(0.0 + 0.0j)
 
                 ABSU2 = np.float32(np.exp(- (K / K0) * (K / K0)) / NORM)
+                if ABSU2 < AMP2_FLOOR:
+                    ABSU2 = AMP2_FLOOR
                 amp = np.float32(np.sqrt(ABSU2))
                 UR[x, z, 0] = np.complex64(amp) * ARG
             else:
                 denom = np.float32(1.0) + (gz * gz) / (ax * ax)
                 ABSW2 = np.float32(np.exp(- (K / K0) * (K / K0)) / (denom * NORM))
+                if ABSW2 < AMP2_FLOOR:
+                    ABSW2 = AMP2_FLOOR
                 ampw = np.float32(np.sqrt(ABSW2))
 
                 w = np.complex64(ampw) * ARG
@@ -194,6 +223,97 @@ def _pao_build_ur_and_stats_impl(
     for x in range(ND2):
         UR[x, NED2, 0] = np.complex64(0.0 + 0.0j)
         UR[x, NED2, 1] = np.complex64(0.0 + 0.0j)
+
+    if use_km3_spectrum:
+        # --------------------------------------------------------------
+        # PAO-k^-3 start spectrum:
+        #   keep PAO random phases and divergence-free relation, but
+        #   redistribute each integer k-shell toward E(k) ~ k^-3 through
+        #   k/k_Nyquist <= 1. Total energy is normalized back to the
+        #   original PAO energy.
+        # --------------------------------------------------------------
+        k_nyquist = float(ND2)
+        kmax_shell = ND2
+        shell_energy = np.zeros(kmax_shell + 1, dtype=np.float64)
+        shell_weight = np.zeros(kmax_shell + 1, dtype=np.float64)
+        target_shell = np.zeros(kmax_shell + 1, dtype=np.float64)
+
+        for x in range(ND2):
+            x1 = (x == 0)
+            ax2 = float(alfa[x]) * float(alfa[x])
+            m = 1.0 if x1 else 2.0
+
+            for z in range(NE):
+                U1 = UR[x, z, 0]
+                U3 = UR[x, z, 1]
+                u1u1 = float(U1.real) * float(U1.real) + float(U1.imag) * float(U1.imag)
+                u3u3 = float(U3.real) * float(U3.real) + float(U3.imag) * float(U3.imag)
+                gz2 = float(gamma[z]) * float(gamma[z])
+                k = math.sqrt(ax2 + gz2)
+                shell = int(k + 0.5)
+                if k > 0.0 and k <= k_nyquist and shell <= kmax_shell:
+                    shell_energy[shell] += m * (u1u1 + u3u3)
+                    z_hash = z
+                    if x == 0 and z > NED2:
+                        z_hash = NE - z
+                    mode_jitter = 0.75 + 0.50 * _pao_hash01(x, z_hash, seed_init, 17)
+                    shell_weight[shell] += m * mode_jitter
+
+        k0f = float(K0)
+        if k0f < 1.0:
+            k0f = 1.0
+
+        for shell in range(1, kmax_shell + 1):
+            k = float(shell)
+            if k < k0f:
+                low = k / k0f
+                shape = (low * low * low * low) / (k0f * k0f * k0f)
+            else:
+                shape = 1.0 / (k * k * k)
+
+            target_shell[shell] = shape
+
+        original_energy = 0.0
+        target_energy = 0.0
+        for shell in range(1, kmax_shell + 1):
+            original_energy += shell_energy[shell]
+            target_energy += target_shell[shell]
+
+        if original_energy > 0.0 and target_energy > 0.0:
+            norm = original_energy / target_energy
+
+            for x in range(ND2):
+                ax = float(alfa[x])
+                ax2 = float(alfa[x]) * float(alfa[x])
+                for z in range(NE):
+                    gz = float(gamma[z])
+                    gz2 = float(gamma[z]) * float(gamma[z])
+                    k = math.sqrt(ax2 + gz2)
+                    shell = int(k + 0.5)
+                    if k > 0.0 and k <= k_nyquist and shell <= kmax_shell and shell_weight[shell] > 0.0:
+                        z_hash = z
+                        phase_sign = 1.0
+                        if x == 0 and z > NED2:
+                            z_hash = NE - z
+                            phase_sign = -1.0
+
+                        mode_jitter = 0.75 + 0.50 * _pao_hash01(x, z_hash, seed_init, 17)
+                        mode_energy = (norm * target_shell[shell]) * mode_jitter / shell_weight[shell]
+                        th = phase_sign * 2.0 * math.pi * _pao_hash01(x, z_hash, seed_init, 53)
+                        phase = np.complex64(math.cos(th) + 1j * math.sin(th))
+
+                        if ax == 0.0:
+                            UR[x, z, 0] = np.complex64(math.sqrt(mode_energy)) * phase
+                            UR[x, z, 1] = np.complex64(0.0 + 0.0j)
+                        else:
+                            denom = 1.0 + gz2 / ax2
+                            w = np.complex64(math.sqrt(mode_energy / denom)) * phase
+                            u = np.complex64(-gz / ax) * w
+                            UR[x, z, 0] = u
+                            UR[x, z, 1] = w
+                    else:
+                        UR[x, z, 0] = np.complex64(0.0 + 0.0j)
+                        UR[x, z, 1] = np.complex64(0.0 + 0.0j)
 
     # ------------------------------------------------------------------
     # Compute averages A(1..7), E110, Q2, W2, VISC (Fortran DO 800/810)
@@ -439,6 +559,7 @@ class DnsState:
     K0: float
     visc: float             # viscosity
     cflnum: float           # CFL target
+    start_spectrum: SPECTRUM = "KM3"
     seed_init: int = 1
     fft_workers: int = 1
 
@@ -461,6 +582,8 @@ class DnsState:
     dt: float = 0.0
     cn: float = 1.0
     cnm1: float = 0.0
+    time_scalars: any = None   # GPU only: float32 [dt, cn, cnm1]
+    cnm1_needs_update: bool = True
     it: int = 0
 
     # Spectral wavenumber vectors
@@ -504,11 +627,53 @@ class DnsState:
     step3_mask_ix0: any = None    # bool (NZ,)
     step3_inv_gamma0: any = None  # float32 (NZ,)  precomputed 1/gamma for ix=0 branch (0 where invalid)
     step3_divxz: any = None       # float32 scalar
+    populate_compact_ur: bool = True
+
+    def __setattr__(self, name, value):
+        object.__setattr__(self, name, value)
+        idx = _TIME_SCALAR_INDEX.get(name)
+        if idx is None:
+            return
+        if self.__dict__.get("backend") != "gpu":
+            return
+        time_scalars = self.__dict__.get("time_scalars")
+        if time_scalars is not None:
+            time_scalars[idx] = _np.float32(value)
+        if name == "cn":
+            object.__setattr__(self, "cnm1_needs_update", True)
 
     def sync(self):
         """For a CuPy backend, force synchronization at convenient checkpoints."""
         if self.backend == "gpu":
             self.xp.cuda.Stream.null.synchronize()  # type: ignore[attr-defined]
+
+
+def sync_time_scalars_from_device(S: DnsState) -> None:
+    """Refresh host dt/cn/cnm1 after GPU-side timestep updates."""
+    if S.backend != "gpu" or S.time_scalars is None:
+        return
+
+    vals = _cp.asnumpy(S.time_scalars) if _cp is not None else _np.asarray(S.time_scalars)
+    object.__setattr__(S, "dt", float(vals[0]))
+    object.__setattr__(S, "cn", float(vals[1]))
+    object.__setattr__(S, "cnm1", float(vals[2]))
+
+
+def _copy_cn_to_cnm1_device(S: DnsState) -> None:
+    global _STEP3_COPY_CN_KERNEL
+    if S.backend != "gpu" or S.time_scalars is None:
+        return
+    if not S.cnm1_needs_update:
+        return
+    if _STEP3_COPY_CN_KERNEL is None:
+        _STEP3_COPY_CN_KERNEL = _cp.RawKernel(r'''
+        extern "C" __global__
+        void turbo_copy_cn_to_cnm1(float* time_scalars) {
+            time_scalars[2] = time_scalars[1];
+        }
+        ''', "turbo_copy_cn_to_cnm1")
+    _STEP3_COPY_CN_KERNEL((1,), (1,), (S.time_scalars,))
+    S.cnm1_needs_update = False
 
 
 # ---------------------------------------------------------------------------
@@ -523,6 +688,8 @@ def create_dns_state(
     backend: Literal["cpu", "gpu", "auto"] = "auto",
     seed: int = 1,
     skip_pao: bool = False,
+    populate_compact_ur: bool = True,
+    start_spectrum: SPECTRUM = "KM3",
 ) -> DnsState:
     xp = get_xp(backend)
 
@@ -561,8 +728,10 @@ def create_dns_state(
         K0=K0,
         visc=visc,
         cflnum=CFL,
+        start_spectrum=start_spectrum,
         seed_init=int(seed),
         fft_workers=4,
+        populate_compact_ur=populate_compact_ur,
     )
 
     # Cache FFT module for the chosen backend (avoid per-call selection)
@@ -583,6 +752,9 @@ def create_dns_state(
     # CFL scratch buffers (full 3/2 grid) to avoid per-step temporaries
     state.cfl_tmp = xp.empty((NZ_full, NX_full), dtype=xp.float32)
     state.cfl_absw = xp.empty((NZ_full, NX_full), dtype=xp.float32)
+
+    if state.backend == "gpu":
+        state.time_scalars = xp.asarray((state.dt, state.cn, state.cnm1), dtype=xp.float32)
 
     state.om2 = xp.zeros((NZ, NX_half), dtype=xp.complex64)
     state.fnm1 = xp.zeros((NZ, NX_half), dtype=xp.complex64)
@@ -697,10 +869,12 @@ def dns_pao_host_init(S: DnsState, skip_pao: bool = False):
 
     DXZ = np.float32(2.0) * PI / np.float32(N)
     K0 = np.float32(S.K0)
-    NORM = PI * K0 * K0
+    use_km3_spectrum = S.start_spectrum == "KM3"
+    spectrum_label = "KM3 k^-3" if use_km3_spectrum else "PAO k*exp(-(k/K0)^2)"
 
     print("--- INITIALIZING SciPy/CuPy ---", _dt.datetime.now().strftime("%Y-%m-%d %H:%M"))
     print(f" N={N}, K0={int(K0)}, Re={S.Re:,.1f}")
+    print(f" Start spec. = {spectrum_label}")
 
     # ------------------------------------------------------------------
     # Build ALFA(N/2) and GAMMA(N)  (Fortran DALFA, DGAMMA, E1, E3)
@@ -747,7 +921,10 @@ def dns_pao_host_init(S: DnsState, skip_pao: bool = False):
     # ------------------------------------------------------------------
     # Generate isotropic random spectrum (Fortran DO 500/510 loops)
     # ------------------------------------------------------------------
-    print(" Generate isotropic random spectrum... " + ("(Numba)" if (_nb is not None) else "(Python)"))
+    if use_km3_spectrum:
+        print(" Generate PAO random spectrum and shell-rescale to k^-3... " + ("(Numba)" if (_nb is not None) else "(Python)"))
+    else:
+        print(" Generate PAO random spectrum... " + ("(Numba)" if (_nb is not None) else "(Python)"))
 
     UR, seed_out, visc_f32, Q2, W2, E110, A1, A2, A3, A4, A5, A6, A7 = _pao_build_ur_and_stats(
         N=N,
@@ -757,6 +934,7 @@ def dns_pao_host_init(S: DnsState, skip_pao: bool = False):
         seed_init=int(S.seed_init),
         alfa=alfa,
         gamma=gamma,
+        use_km3_spectrum=use_km3_spectrum,
     )
 
     seed[0] = int(seed_out)
@@ -831,7 +1009,7 @@ def dns_pao_host_init(S: DnsState, skip_pao: bool = False):
             for c in range(2):
                 UC_full_host[x, z, c] = UR[x, z, c]
 
-    print(f" PAO INITIALIZATION OK. VISC={float(S.visc):.8g}")
+    print(f" {S.start_spectrum} INITIALIZATION OK. VISC={float(S.visc):.8g}")
 
     # ------------------------------------------------------------------
     # Move alfa/gamma/UC/UC_full into DnsState (xp backend, SoA layout)
@@ -976,10 +1154,14 @@ def dns_calcom_from_uc_full(S: DnsState) -> None:
 # ---------------------------------------------------------------------------
 # STEP2B — build uiuj and forward FFT (dnsCudaStep2B)
 # ---------------------------------------------------------------------------
-_STEP2B_MUL3_KERNEL = None  # created lazily on first GPU call
-_STEP3_UPDATE_KERNEL = None  # created lazily on first GPU call
-_STEP3_BUILD_UC_KERNEL = None  # created lazily on first GPU call
+_STEP2B_MUL3_KERNEL = None  # fallback, created lazily on first GPU call
+_STEP2B_BUILD_UIUJ_KERNEL = None  # created lazily on first GPU call
+_STEP2B_ZERO_MIDDLE_KERNEL = None  # created lazily on first GPU call
+_STEP3_FUSED_KERNEL = None  # created lazily on first GPU call
+_STEP2A_PREPARE_KERNEL = None  # created lazily on first GPU call
 _STEP2A_CROP_KERNEL = None  # created lazily on first GPU call
+_STEP3_COPY_CN_KERNEL = None  # created lazily on first GPU call
+_NEXT_DT_UPDATE_KERNEL = None  # created lazily on first GPU call
 
 def dns_step2b(S: DnsState) -> None:
     """
@@ -1006,17 +1188,70 @@ def dns_step2b(S: DnsState) -> None:
     u = UR[0]   # (NZ_full, NX_full)
     w = UR[1]   # (NZ_full, NX_full)
 
-    # Use a single elementwise GPU kernel to write all three products in one pass
+    # Use the same vectorized pair kernel as the native CUDA hot path when the
+    # full-row width is even. It halves the number of global-memory transactions
+    # versus scalar elementwise code for the common power-of-two DNS sizes.
     if S.backend == "gpu":
-        global _STEP2B_MUL3_KERNEL
-        if _STEP2B_MUL3_KERNEL is None:
-            _STEP2B_MUL3_KERNEL = xp.ElementwiseKernel(
-                "T u, T w",
-                "T uw, T uu, T ww",
-                "uw = u * w; uu = u * u; ww = w * w;",
-                "turbo_step2b_mul3",
+        global _STEP2B_BUILD_UIUJ_KERNEL, _STEP2B_MUL3_KERNEL
+        if (NX_full % 2) == 0:
+            if _STEP2B_BUILD_UIUJ_KERNEL is None:
+                _STEP2B_BUILD_UIUJ_KERNEL = _cp.RawKernel(r'''
+                extern "C" __global__
+                void turbo_step2b_build_uiuj_vec2(float* ur_full,
+                                                  int NX_full,
+                                                  int NZ_full)
+                {
+                    int x2 = (int)(blockIdx.x * blockDim.x + threadIdx.x);
+                    int z = (int)(blockIdx.y * blockDim.y + threadIdx.y);
+
+                    int NX_pairs = NX_full / 2;
+                    if (x2 >= NX_pairs || z >= NZ_full) return;
+
+                    size_t plane = (size_t)NX_full * (size_t)NZ_full;
+                    size_t row = (size_t)z * (size_t)NX_full;
+
+                    float2* u_row  = reinterpret_cast<float2*>(ur_full + row);
+                    float2* w_row  = reinterpret_cast<float2*>(ur_full + plane + row);
+                    float2* uw_row = reinterpret_cast<float2*>(ur_full + 2 * plane + row);
+
+                    float2 u = u_row[x2];
+                    float2 w = w_row[x2];
+
+                    float2 uw;
+                    uw.x = u.x * w.x;
+                    uw.y = u.y * w.y;
+
+                    float2 uu;
+                    uu.x = u.x * u.x;
+                    uu.y = u.y * u.y;
+
+                    float2 ww;
+                    ww.x = w.x * w.x;
+                    ww.y = w.y * w.y;
+
+                    uw_row[x2] = uw;
+                    u_row[x2] = uu;
+                    w_row[x2] = ww;
+                }
+                ''', "turbo_step2b_build_uiuj_vec2")
+
+            block = (16, 16)
+            grid = (((NX_full // 2) + block[0] - 1) // block[0],
+                    (NZ_full + block[1] - 1) // block[1])
+            _STEP2B_BUILD_UIUJ_KERNEL(
+                grid,
+                block,
+                (UR, _np.int32(NX_full), _np.int32(NZ_full)),
             )
-        _STEP2B_MUL3_KERNEL(u, w, UR[2], UR[0], UR[1])
+        else:
+            if _STEP2B_MUL3_KERNEL is None:
+                _STEP2B_MUL3_KERNEL = xp.ElementwiseKernel(
+                    "T u, T w",
+                    "T uw, T uu, T ww",
+                    "uw = u * w; uu = u * u; ww = w * w;",
+                    "turbo_step2b_mul3",
+                )
+            _STEP2B_MUL3_KERNEL(u, w, UR[2], UR[0], UR[1])
     else:
         # Use in-place multiplies to avoid temporaries
         xp.multiply(u, w, out=UR[2])  # u * w
@@ -1032,7 +1267,38 @@ def dns_step2b(S: DnsState) -> None:
     kx_max = min(NX_half, NK_full)
 
     if z_mid < NZ_full and kx_max > 0:
-        UC[0:3, z_mid, 0:kx_max] = xp.complex64(0.0 + 0.0j)
+        if S.backend == "gpu":
+            global _STEP2B_ZERO_MIDDLE_KERNEL
+            if _STEP2B_ZERO_MIDDLE_KERNEL is None:
+                _STEP2B_ZERO_MIDDLE_KERNEL = _cp.RawKernel(r'''
+                extern "C" __global__
+                void turbo_step2b_zero_middle(float2* uc_full,
+                                              int NX_half,
+                                              int z_mid,
+                                              int NK_full,
+                                              int NZ_full)
+                {
+                    int kx = (int)(blockIdx.x * blockDim.x + threadIdx.x);
+                    if (kx >= NX_half) return;
+
+                    for (int c = 0; c < 3; ++c) {
+                        size_t idx = (size_t)kx
+                                   + (size_t)NK_full
+                                   * ((size_t)z_mid + (size_t)NZ_full * (size_t)c);
+                        uc_full[idx].x = 0.0f;
+                        uc_full[idx].y = 0.0f;
+                    }
+                }
+                ''', "turbo_step2b_zero_middle")
+            threads = 256
+            blocks = (kx_max + threads - 1) // threads
+            _STEP2B_ZERO_MIDDLE_KERNEL(
+                (blocks,),
+                (threads,),
+                (UC, _np.int32(kx_max), _np.int32(z_mid), _np.int32(NK_full), _np.int32(NZ_full)),
+            )
+        else:
+            UC[0:3, z_mid, 0:kx_max] = xp.complex64(0.0 + 0.0j)
 
 
 # ---------------------------------------------------------------------------
@@ -1040,122 +1306,116 @@ def dns_step2b(S: DnsState) -> None:
 # ---------------------------------------------------------------------------
 def dns_step3(S: DnsState, fuse: bool = True) -> None:
     xp = S.xp
-    global _STEP3_UPDATE_KERNEL, _STEP3_BUILD_UC_KERNEL
-    # Fast GPU path: fuse the heavy STEP3 arithmetic into a couple of custom kernels.
-    # This avoids a large number of small elementwise launches (dominant in Scalene).
+    global _STEP3_FUSED_KERNEL
+    # Fast GPU path: mirror the native CUDA kernel by updating OM2/FNM1 and
+    # reconstructing UC_full[0:2] from the new OM2 while it is still in a register.
     if S.backend == "gpu" and _cp is not None and fuse:
 
         # Compile once per process
-        if _STEP3_UPDATE_KERNEL is None:
-            _STEP3_UPDATE_KERNEL = _cp.RawKernel(r'''
-            #include <cupy/complex.cuh>
+        if _STEP3_FUSED_KERNEL is None:
+            _STEP3_FUSED_KERNEL = _cp.RawKernel(r'''
             extern "C" __global__
-            void turbo_step3_update(
-                const complex<float>* uc0, const complex<float>* uc1, const complex<float>* uc2,
-                const int* z_spec,
-                const float* GA, const float* G2mA2, const float* K2,
-                complex<float>* om2, complex<float>* fnm1,
-                int NK_full, int NX_half, int NZ,
-                float divxz, float visc, float dt, float cnm1
+            void turbo_step3_fused(float2* om2,
+                                   float2* fnm1,
+                                   float2* uc_full,
+                                   const float* time_scalars,
+                                   int NX_half,
+                                   int NZ,
+                                   int NZ_full,
+                                   int NK_full,
+                                   float divxz,
+                                   float visc
             ) {
-                int idx = (int)(blockIdx.x * blockDim.x + threadIdx.x);
-                int n = NZ * NX_half;
-                if (idx >= n) return;
+                int k = (int)(blockIdx.x * blockDim.x + threadIdx.x);
+                int z = (int)(blockIdx.y * blockDim.y + threadIdx.y);
+                if (k >= NX_half || z >= NZ) return;
 
-                int z = idx / NX_half;
-                int k = idx - z * NX_half;
+                int idx = z * NX_half + k;
+                float2 om_old = om2[idx];
+                float2 fn_old = fnm1[idx];
 
-                int zsrc = z_spec[z];
+                float ax = (float)k;
+                float gz = (z < (NZ / 2)) ? (float)z : (float)(z - NZ);
+                float A2 = ax * ax;
+                float G2 = gz * gz;
+                float K2 = A2 + G2;
+                float GA = gz * ax;
+                float G2_minus_A2 = G2 - A2;
 
-                complex<float> u0 = uc0[zsrc * NK_full + k];
-                complex<float> u1 = uc1[zsrc * NK_full + k];
-                complex<float> u2v = uc2[zsrc * NK_full + k];
+                int z_spec = ((z + 1) <= (NZ / 2)) ? z : (z + NZ / 2);
 
-                float ga = GA[idx];
-                float g2ma2 = G2mA2[idx];
+                size_t idx_uc1_in = (size_t)k + (size_t)NK_full
+                                   * ((size_t)z_spec + (size_t)NZ_full * 0u);
+                size_t idx_uc2_in = (size_t)k + (size_t)NK_full
+                                   * ((size_t)z_spec + (size_t)NZ_full * 1u);
+                size_t idx_uc3_in = (size_t)k + (size_t)NK_full
+                                   * ((size_t)z_spec + (size_t)NZ_full * 2u);
 
-                complex<float> fn = (u0 - u1) * ga + u2v * g2ma2;
-                fn *= divxz;
+                float2 uc1 = uc_full[idx_uc1_in];
+                float2 uc2 = uc_full[idx_uc2_in];
+                float2 uc3 = uc_full[idx_uc3_in];
 
-                float arg = K2[idx] * (0.5f * visc * dt);
+                float fnx = (GA * (uc1.x - uc2.x) + G2_minus_A2 * uc3.x) * divxz;
+                float fny = (GA * (uc1.y - uc2.y) + G2_minus_A2 * uc3.y) * divxz;
+
+                float dt = time_scalars[0];
+                float cnm1 = time_scalars[2];
+                float arg = K2 * (0.5f * visc * dt);
                 float den = 1.0f + arg;
-                float invden = 1.0f / den;
-
+                float c1 = 1.0f - arg;
                 float c2 = 0.5f * dt * (2.0f + cnm1);
                 float c3 = -0.5f * dt * cnm1;
 
-                complex<float> om = om2[idx];
-                complex<float> fprev = fnm1[idx];
+                float2 om_new;
+                om_new.x = (c1 * om_old.x + c2 * fnx + c3 * fn_old.x) / den;
+                om_new.y = (c1 * om_old.y + c2 * fny + c3 * fn_old.y) / den;
 
-                complex<float> num = om - om * arg + fn * c2 + fprev * c3;
+                om2[idx] = om_new;
+                fnm1[idx].x = fnx;
+                fnm1[idx].y = fny;
 
-                om2[idx] = num * invden;
-                fnm1[idx] = fn;
-            }
-            ''', "turbo_step3_update")
+                float2 out1;
+                float2 out2;
+                out1.x = 0.0f;
+                out1.y = 0.0f;
+                out2.x = 0.0f;
+                out2.y = 0.0f;
 
-        if _STEP3_BUILD_UC_KERNEL is None:
-            _STEP3_BUILD_UC_KERNEL = _cp.RawKernel(r'''
-            #include <cupy/complex.cuh>
-            extern "C" __global__
-            void turbo_step3_build_uc01(
-                const complex<float>* om2,
-                const float* invK2_sub,
-                const float* gamma,
-                const float* alfa,
-                const float* inv_gamma0,
-                complex<float>* out1,
-                complex<float>* out2,
-                int NX_half, int NZ, int NK_full
-            ) {
-                int idx = (int)(blockIdx.x * blockDim.x + threadIdx.x);
-                int n = NZ * NX_half;
-                if (idx >= n) return;
+                if (k >= 1) {
+                    float invK2 = 1.0f / (K2 + 1.0e-30f);
+                    float vx = om_new.x * invK2;
+                    float vy = om_new.y * invK2;
 
-                int z = idx / NX_half;
-                int k = idx - z * NX_half;
-
-                complex<float> om = om2[idx];
-
-                complex<float> o1(0.0f, 0.0f);
-                complex<float> o2(0.0f, 0.0f);
-
-                if (k == 0) {
-                    float invg = inv_gamma0[z];
-                    // (-i) * (a + i b) = b - i a
-                    o1 = complex<float>(om.imag(), -om.real()) * invg;
-                    o2 = complex<float>(0.0f, 0.0f);
+                    out1.x = gz * vy;
+                    out1.y = -gz * vx;
+                    out2.x = -ax * vy;
+                    out2.y = ax * vx;
                 } else {
-                    float invk2 = invK2_sub[z * (NX_half - 1) + (k - 1)];
-                    float gz = gamma[z];
-                    float ax = alfa[k];
-
-                    // (-i) * om
-                    complex<float> m1(om.imag(), -om.real());
-                    // ( i) * om
-                    complex<float> m2(-om.imag(), om.real());
-
-                    o1 = m1 * (invk2 * gz);
-                    o2 = m2 * (invk2 * ax);
+                    float invG = ((z + 1) >= 2 && (gz > 0.0f || gz < 0.0f)) ? (1.0f / gz) : 0.0f;
+                    out1.x = om_new.y * invG;
+                    out1.y = -om_new.x * invG;
                 }
 
-                int oidx = z * NK_full + k;
-                out1[oidx] = o1;
-                out2[oidx] = o2;
+                size_t idx_uc1_out = (size_t)k + (size_t)NK_full
+                                    * ((size_t)z + (size_t)NZ_full * 0u);
+                size_t idx_uc2_out = (size_t)k + (size_t)NK_full
+                                    * ((size_t)z + (size_t)NZ_full * 1u);
+                uc_full[idx_uc1_out] = out1;
+                uc_full[idx_uc2_out] = out2;
             }
-            ''', "turbo_step3_build_uc01")
+            ''', "turbo_step3_fused")
 
         # Geometry and constants
         Nbase = int(S.Nbase)
         NX_half = Nbase // 2
         NZ = Nbase
 
-        uc_full = S.uc_full
         NK_full = int(S.NK_full)
+        NZ_full = int(S.NZ_full)
 
-        threads = 256
-        n = NZ * NX_half
-        blocks = (n + threads - 1) // threads
+        block = (64, 4)
+        grid = ((NX_half + block[0] - 1) // block[0],
+                (NZ + block[1] - 1) // block[1])
 
         # IMPORTANT: RawKernel scalar args must match the C signature types.
         # On 64-bit Python, passing plain Python ints/floats will typically be int64/float64,
@@ -1163,46 +1423,28 @@ def dns_step3(S: DnsState, fuse: bool = True) -> None:
         NK_full_i32 = _np.int32(NK_full)
         NX_half_i32 = _np.int32(NX_half)
         NZ_i32 = _np.int32(NZ)
+        NZ_full_i32 = _np.int32(NZ_full)
         divxz_f32 = _np.float32(S.step3_divxz)
         visc_f32 = _np.float32(S.visc)
-        dt_f32 = _np.float32(S.dt)
-        cnm1_f32 = _np.float32(S.cnm1)
 
-        # UPDATE: compute FN, update om2, update fnm1
-        _STEP3_UPDATE_KERNEL(
-            (blocks,),
-            (threads,),
-            (
-                uc_full[0], uc_full[1], uc_full[2],
-                S.step3_z_spec,
-                S.step3_GA, S.step3_G2mA2, S.step3_K2,
-                S.om2, S.fnm1,
-                NK_full_i32, NX_half_i32, NZ_i32,
-                divxz_f32,
-                visc_f32,
-                dt_f32,
-                cnm1_f32,
-            ),
-        )
-
-        # BUILD: write directly into uc_full[0/1] low-k band at stride NK_full,
-        # fusing the scatter so scratch1/scratch2 aren't touched on the GPU path.
-        _STEP3_BUILD_UC_KERNEL(
-            (blocks,),
-            (threads,),
+        _STEP3_FUSED_KERNEL(
+            grid,
+            block,
             (
                 S.om2,
-                S.step3_invK2_sub,
-                S.gamma,
-                S.alfa,
-                S.step3_inv_gamma0,
-                uc_full[0],
-                uc_full[1],
-                NX_half_i32, NZ_i32, NK_full_i32,
+                S.fnm1,
+                S.uc_full,
+                S.time_scalars,
+                NX_half_i32,
+                NZ_i32,
+                NZ_full_i32,
+                NK_full_i32,
+                divxz_f32,
+                visc_f32,
             ),
         )
 
-        S.cnm1 = float(S.cn)
+        _copy_cn_to_cnm1_device(S)
         return
 
     om2 = S.om2
@@ -1216,9 +1458,12 @@ def dns_step3(S: DnsState, fuse: bool = True) -> None:
     NZ = Nbase
 
     visc = xp.float32(S.visc)
-    dt = xp.float32(S.dt)
-    cn = xp.float32(S.cn)
-    cnm1 = xp.float32(S.cnm1)
+    if S.backend == "gpu" and S.time_scalars is not None:
+        dt = S.time_scalars[0]
+        cnm1 = S.time_scalars[2]
+    else:
+        dt = xp.float32(S.dt)
+        cnm1 = xp.float32(S.cnm1)
 
     z_spec = S.step3_z_spec
     divxz = S.step3_divxz
@@ -1293,7 +1538,10 @@ def dns_step3(S: DnsState, fuse: bool = True) -> None:
     uc_full[0, :NZ, :NX_half] = out1
     uc_full[1, :NZ, :NX_half] = out2
 
-    S.cnm1 = float(cn)
+    if S.backend == "gpu" and S.time_scalars is not None:
+        _copy_cn_to_cnm1_device(S)
+    else:
+        S.cnm1 = float(S.cn)
 
 
 # ===============================================================
@@ -1310,23 +1558,87 @@ def dns_step2a(S: DnsState) -> None:
 
     UC = S.uc_full
 
-    hi_start = N // 2
-    hi_end = min(3 * N // 4, NK_full - 1)
-    if hi_start <= hi_end:
-        UC[0:2, :, hi_start:hi_end + 1] = xp.complex64(0.0 + 0.0j)
+    if S.backend == "gpu" and _cp is not None:
+        global _STEP2A_PREPARE_KERNEL
+        if _STEP2A_PREPARE_KERNEL is None:
+            _STEP2A_PREPARE_KERNEL = _cp.RawKernel(r'''
+            extern "C" __global__
+            void turbo_step2a_prepare(float2* uc_full,
+                                      int Nbase,
+                                      int NZ_full,
+                                      int NK_full)
+            {
+                int tx = (int)(blockIdx.x * blockDim.x + threadIdx.x);
+                int tz = (int)(blockIdx.y * blockDim.y + threadIdx.y);
+                int nx_start = Nbase / 2;
+                int nx_end = 3 * Nbase / 4;
+                int nx_len = nx_end - nx_start + 1;
 
-    halfN = N // 2
-    k_max = min(halfN, NK_full)
-    if k_max > 0:
-        z_mid_start = halfN
-        z_mid_end = N
-        z_top_start = N
-        z_top_end = N + halfN
-        UC[0:2, z_top_start:z_top_end, :k_max] = UC[0:2, z_mid_start:z_mid_end, :k_max]
-        UC[0:2, z_mid_start:z_mid_end, :k_max] = xp.complex64(0.0 + 0.0j)
+                if (tz < NZ_full && tx < nx_len) {
+                    int kx = nx_start + tx;
+                    if (kx < NK_full) {
+                        for (int c = 0; c < 2; ++c) {
+                            size_t idx = (size_t)kx
+                                       + (size_t)NK_full
+                                       * ((size_t)tz + (size_t)NZ_full * (size_t)c);
+                            uc_full[idx].x = 0.0f;
+                            uc_full[idx].y = 0.0f;
+                        }
+                    }
+                }
+
+                if (tx < Nbase / 2 && tz < Nbase / 2 && tx < NK_full) {
+                    int z_mid = tz + Nbase / 2;
+                    int z_top = tz + Nbase;
+                    if (z_top < NZ_full) {
+                        for (int c = 0; c < 2; ++c) {
+                            size_t idx_mid = (size_t)tx
+                                           + (size_t)NK_full
+                                           * ((size_t)z_mid + (size_t)NZ_full * (size_t)c);
+                            size_t idx_top = (size_t)tx
+                                           + (size_t)NK_full
+                                           * ((size_t)z_top + (size_t)NZ_full * (size_t)c);
+                            float2 v = uc_full[idx_mid];
+                            uc_full[idx_top] = v;
+                            uc_full[idx_mid].x = 0.0f;
+                            uc_full[idx_mid].y = 0.0f;
+                        }
+                    }
+                }
+            }
+            ''', "turbo_step2a_prepare")
+
+        block = (32, 8)
+        nx_len = 3 * N // 4 - N // 2 + 1
+        work_x = max(nx_len, N // 2)
+        grid = ((work_x + block[0] - 1) // block[0],
+                (NZ_full + block[1] - 1) // block[1])
+        _STEP2A_PREPARE_KERNEL(
+            grid,
+            block,
+            (UC, _np.int32(N), _np.int32(NZ_full), _np.int32(NK_full)),
+        )
+    else:
+        hi_start = N // 2
+        hi_end = min(3 * N // 4, NK_full - 1)
+        if hi_start <= hi_end:
+            UC[0:2, :, hi_start:hi_end + 1] = xp.complex64(0.0 + 0.0j)
+
+        halfN = N // 2
+        k_max = min(halfN, NK_full)
+        if k_max > 0:
+            z_mid_start = halfN
+            z_mid_end = N
+            z_top_start = N
+            z_top_end = N + halfN
+            UC[0:2, z_top_start:z_top_end, :k_max] = UC[0:2, z_mid_start:z_mid_end, :k_max]
+            UC[0:2, z_mid_start:z_mid_end, :k_max] = xp.complex64(0.0 + 0.0j)
 
     # Inverse FFT UC_full → UR_full
     vfft_full_inverse_uc_full_to_ur_full(S)
+
+    if not S.populate_compact_ur:
+        return
 
     off_x = (NX_full - NX) // 2
     off_z = (NZ_full - NZ) // 2
@@ -1413,19 +1725,47 @@ def compute_cflm(S: DnsState):
     CFLM = xp.max(tmp) * S.inv_dx
     return float(CFLM) if S.backend == "cpu" else CFLM
 
-def next_dt(S: DnsState) -> None:
+def next_dt(S: DnsState, sync_host: bool = False) -> None:
+    global _NEXT_DT_UPDATE_KERNEL
     PI = math.pi
     CFLM = compute_cflm(S)
 
     if S.backend == "gpu":
-        CFLM = float(CFLM)  # one sync here, but only when next_dt is called
+        if S.time_scalars is None:
+            CFLM = float(CFLM)
+        else:
+            if _NEXT_DT_UPDATE_KERNEL is None:
+                _NEXT_DT_UPDATE_KERNEL = _cp.RawKernel(r'''
+                extern "C" __global__
+                void turbo_next_dt_update(const float* cflm, float* time_scalars, float cflnum) {
+                    float CFLM = cflm[0];
+                    float dt = time_scalars[0];
+                    if (CFLM <= 0.0f || dt <= 0.0f) return;
+
+                    float CFL = CFLM * dt * 3.14159265358979323846f;
+                    float cn = 0.8f + 0.2f * (cflnum / CFL);
+                    time_scalars[1] = cn;
+                    time_scalars[0] = dt * cn;
+                }
+                ''', "turbo_next_dt_update")
+            _NEXT_DT_UPDATE_KERNEL(
+                (1,),
+                (1,),
+                (CFLM, S.time_scalars, _np.float32(S.cflnum)),
+            )
+            S.cnm1_needs_update = True
+            if sync_host:
+                sync_time_scalars_from_device(S)
+                return float(CFLM)
+            return
 
     if CFLM <= 0.0 or S.dt <= 0.0:
-        return
+        return CFLM
 
     CFL = CFLM * S.dt * PI
     S.cn = 0.8 + 0.2 * (S.cflnum / CFL)
     S.dt = S.dt * S.cn
+    return CFLM
 
 
 # ===============================================================
@@ -1565,6 +1905,36 @@ def dns_stream_func(S: DnsState) -> None:
     S.ur_full[2, :, :] = phys
 
 
+def dns_phi_phys(S: DnsState) -> None:
+    xp = S.xp
+    fft = S.fft
+
+    NZ_full = S.NZ_full
+    NX_full = S.NX_full
+
+    u_hat = fft.rfft2(S.ur_full[0], s=(NZ_full, NX_full), axes=(0, 1))
+    v_hat = fft.rfft2(S.ur_full[1], s=(NZ_full, NX_full), axes=(0, 1))
+
+    kx = xp.arange(S.NK_full, dtype=xp.float32)[None, :]
+    kz_i = xp.arange(NZ_full, dtype=xp.int32)
+    kz_i = xp.where(kz_i <= NZ_full // 2, kz_i, kz_i - NZ_full)
+    kz = kz_i.astype(xp.float32)[:, None]
+
+    k2 = kx * kx + kz * kz
+    div = kx * u_hat + kz * v_hat
+    denom = xp.where(k2 > xp.float32(0.0), k2, xp.float32(1.0))
+    phi_hat = -1j * div / denom
+    phi_hat = xp.where(k2 > xp.float32(0.0), phi_hat, xp.complex64(0.0 + 0.0j))
+
+    phys = fft.irfft2(
+        phi_hat,
+        s=(NZ_full, NX_full),
+        axes=(0, 1),
+        norm="forward",
+    )
+    S.ur_full[2, :, :] = xp.asarray(phys, dtype=xp.float32)
+
+
 # ---------------------------------------------------------------------------
 # Main driver (Python version of main in dns_all.cu)
 # ---------------------------------------------------------------------------
@@ -1575,6 +1945,7 @@ def run_dns(
     STEPS: int = 2,
     CFL: float = 0.75,
     backend: Literal["cpu", "gpu", "auto"] = "auto",
+    start_spectrum: SPECTRUM = "KM3",
 ) -> None:
     print("--- RUN DNS ---")
     print(f" N   = {N}")
@@ -1582,13 +1953,36 @@ def run_dns(
     print(f" K0  = {K0}")
     print(f" Steps = {STEPS}")
     print(f" CFL  = {CFL}")
+    print(f" Start spectrum = {start_spectrum}")
     print(f" requested = {backend}")
 
     start =  time.perf_counter()
-    S = create_dns_state(N=N, Re=Re, K0=K0, CFL=CFL, backend=backend)
+
+    free_before = None
+    if backend == "gpu" and _cp is not None:
+        _cp.cuda.Device().synchronize()
+        free_before, _ = _cp.cuda.Device().mem_info
+
+    S = create_dns_state(
+        N=N,
+        Re=Re,
+        K0=K0,
+        CFL=CFL,
+        backend=backend,
+        start_spectrum=start_spectrum,
+        populate_compact_ur=False,
+    )
     print(f" effective = {S.backend} (xp = {'cupy' if S.backend == 'gpu' else 'scipy'})")
     elapsed = time.perf_counter() - start
     print(f" DNS INITIALIZATION took {elapsed:.3f} seconds")
+
+    if S.backend == "gpu" and _cp is not None and free_before is not None:
+        _cp.cuda.Device().synchronize()
+        free_after, _ = _cp.cuda.Device().mem_info
+        driver_used_mib = (free_before - free_after) / (1024 * 1024)
+        pool_used_mib = _cp.get_default_memory_pool().used_bytes() / (1024 * 1024)
+        print(f" create_dns_state: GPU memory ≈ {driver_used_mib:.2f} MiB"
+              f"  (pool used {pool_used_mib:.2f} MiB)")
 
     if S.backend == "cpu" and _spfft is not None and S.fft_workers > 1:
         fft_ctx = _spfft.set_workers(S.fft_workers)
@@ -1627,8 +2021,10 @@ def run_dns(
             dns_step3(S)
             dns_step2a(S)
             if (it % 100) == 0 or it == 1 or it == STEPS:
-                next_dt(S)
-                print(f" ITERATION {it:6d} T={S.t:12.10f} DT={S.dt:10.8f} CN={S.cn:10.8f} CFLM={float(compute_cflm(S)):.6f}")
+                CFLM = next_dt(S, sync_host=True)
+                if CFLM is None:
+                    CFLM = compute_cflm(S)
+                print(f" ITERATION {it:6d} T={S.t:12.10f} DT={S.dt:10.8f} CN={S.cn:10.8f} CFLM={float(CFLM):.6f}")
             S.t += dt_old
 
         S.sync()
@@ -1652,8 +2048,9 @@ def main():
     BACK = args[5].lower() if len(args) > 5 else "auto"
     if BACK not in ("cpu", "gpu", "auto"):
         BACK = "auto"
+    START_SPECTRUM = cast(SPECTRUM, args[6]) if len(args) > 6 else "KM3"
 
-    run_dns(N=N, Re=Re, K0=K0, STEPS=STEPS, CFL=CFL, backend=BACK)
+    run_dns(N=N, Re=Re, K0=K0, STEPS=STEPS, CFL=CFL, backend=BACK, start_spectrum=START_SPECTRUM)
 
 
 if __name__ == "__main__":

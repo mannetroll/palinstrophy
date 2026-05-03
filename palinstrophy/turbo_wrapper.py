@@ -38,12 +38,14 @@ class DnsSimulator:
         k0: float = 15.0,
         cfl: float = 0.25,
         backend: Literal["cpu", "gpu", "auto"] = "auto",
+        start_spectrum: dns_all.SPECTRUM = "KM3",
     ):
         self.N = int(n)
         self.m = 3 * self.N
         self.re = float(re)
         self.k0 = float(k0)
         self.cfl = float(cfl)
+        self.start_spectrum = start_spectrum
         random.seed()
         self.seed = random.randint(1, 1000)
         self.backend = backend
@@ -66,6 +68,7 @@ class DnsSimulator:
                 CFL=self.cfl,
                 backend=self.backend,
                 seed=self.seed,
+                start_spectrum=self.start_spectrum,
             )
 
             self.nx = int(self.state.NZ_full)  # "height"
@@ -94,9 +97,10 @@ class DnsSimulator:
             dns_all.dns_step2a(self.state)
             CFLM = dns_all.compute_cflm(self.state)
 
-            # CFLM * DT * PI = CFLNUM  →  DT = CFLNUM / (CFLM * PI)
+            # CFLM * DT * PI = CFLNUM  ->  DT = CFLNUM / (CFLM * PI)
             if self.state.backend == "gpu":
-                # CFLM is a device scalar; pull to host ONCE here so dt/cn/cnm1 stay floats
+                # CFLM is a device scalar; pull to host once during initialization.
+                # Assigning state.dt also mirrors it into the GPU time-scalar buffer.
                 CFLM_h = float(CFLM.item()) if hasattr(CFLM, "item") else float(CFLM)
                 self.state.dt = float(self.state.cflnum) / (CFLM_h * math.pi)
             else:
@@ -138,9 +142,8 @@ class DnsSimulator:
 
         # Call NEXTDT every mod_next_dt iterations.
         #
-        # IMPORTANT (GPU): dns_all.next_dt() pulls a device scalar to host, which is a hard sync.
-        # To avoid creating an extra sync point in the hot step loop, we only *schedule* NEXTDT here
-        # and execute it in get_frame_pixels() right before we pull pixels to the CPU.
+        # IMPORTANT (GPU): NEXTDT scans the full grid. Keep it out of the hot step loop
+        # and execute it in get_frame_pixels() right before the unavoidable frame pull.
         if (self.iteration % mod_next_dt) == 0:
             self._next_dt_pending = True
         S.t += dt_old
@@ -166,6 +169,7 @@ class DnsSimulator:
                 backend="auto",
                 seed=self.seed,
                 skip_pao=skip_pao,
+                start_spectrum=self.start_spectrum,
             )
 
         # DEBUG: print full-grid sizes
@@ -238,6 +242,7 @@ class DnsSimulator:
                 CFL=self.cfl,
                 backend="auto",
                 seed=seed,
+                start_spectrum=self.start_spectrum,
             )
 
         self.nx = int(self.state.NZ_full)
@@ -476,6 +481,9 @@ class DnsSimulator:
                 self._next_dt_pending = False
 
             plane = cp.asnumpy(pix_cp)
+            dns_all.sync_time_scalars_from_device(S)
+            self.dt = float(S.dt)
+            self.cn = float(S.cn)
         else:
             # CPU path unchanged
             plane = self.make_pixels_component(self.current_var)
@@ -485,6 +493,8 @@ class DnsSimulator:
             if getattr(self, "_next_dt_pending", False):
                 dns_all.next_dt(S)
                 self._next_dt_pending = False
+                self.dt = float(S.dt)
+                self.cn = float(S.cn)
 
         return np.ascontiguousarray(plane, dtype=np.uint8)
 

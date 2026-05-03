@@ -7,7 +7,7 @@ import os
 from pathlib import Path
 import sys
 import time
-from typing import Optional, Literal, cast
+from typing import Optional, Literal, cast, get_args
 
 from PySide6.QtCore import QSize, QTimer, Qt, QStandardPaths
 from PySide6.QtGui import QIcon, QImage, QPixmap, QFontDatabase, qRgb, QKeySequence, QShortcut
@@ -280,6 +280,10 @@ COLOR_MAPS = {
 }
 
 DEFAULT_CMAP_NAME = "Inferno"
+START_SPECTRUM_ITEMS: tuple[tuple[str, dns_all.SPECTRUM], ...] = (
+    ("KM3", "KM3"),
+    ("PAO", "PAO"),
+)
 # ----------------------------------------------------------------------
 # Display normalization, reduces flicker when the underlying dynamic range
 # changes quickly.
@@ -315,6 +319,9 @@ def _setup_shortcuts(self):
     self._sc_k = sc("K", lambda: self.k0_combo.setCurrentIndex(
         (self.k0_combo.currentIndex() + 1) % self.k0_combo.count()
     ))
+    self._sc_p = sc("P", lambda: self.start_spectrum_combo.setCurrentIndex(
+        (self.start_spectrum_combo.currentIndex() + 1) % self.start_spectrum_combo.count()
+    ))
     self._sc_l = sc("L", lambda: self.cfl_combo.setCurrentIndex(
         (self.cfl_combo.currentIndex() + 1) % self.cfl_combo.count()
     ))
@@ -330,17 +337,23 @@ def _setup_shortcuts(self):
 #   key: ("cpu", NZ, NX) or ("cuda", device_id, NZ, NX)
 #   val: K2 array on the corresponding backend (numpy or cupy)
 _K2_CACHE: dict[tuple, object] = {}
-CSV_HEADER = ("N", "K0", "Re", "CFL", "VISC", "STEPS", "PALIN", "SIG", "TIME", "MINUTES", "FPS")
+CSV_HEADER = ("N", "K0", "Re", "CFL", "VISC", "STEPS", "PALIN", "SIG", "TIME", "DT", "MINUTES", "FPS")
+MOVIE_FRAME_STEM = "Ω_Inferno"
 
 
 class MainWindow(QMainWindow):
-    def __init__(self, sim: DnsSimulator, steps: str, update: str, iterations: int) -> None:
+    def __init__(self, sim: DnsSimulator, steps: str, update: str, iterations: int, mov: int = 0) -> None:
         super().__init__()
 
         self.sim = sim
         self.update = update
         self.steps = steps
         self.iterations = iterations
+        self.mov_enabled = bool(int(mov))
+        self._movie_initial_re = float(sim.re)
+        self._movie_frame_index = 0
+        self._movie_last_saved_iteration = -1
+        self._movie_folder_path: Optional[str] = None
         self.current_cmap_name = DEFAULT_CMAP_NAME
         self._status_update_counter = 0
         self._update_intervall = update
@@ -413,7 +426,7 @@ class MainWindow(QMainWindow):
 
         # Load case button
         self.load_button = QPushButton()
-        self.load_button.setIcon(style.standardIcon(QStyle.StandardPixmap.SP_DirOpenIcon))
+        self.load_button.setIcon(style.standardIcon(QStyle.StandardPixmap.SP_DialogOpenButton))
         self.load_button.setToolTip("Load case from parquet restart")
         self.load_button.setFixedSize(28, 28)
         self.load_button.setIconSize(QSize(14, 14))
@@ -435,7 +448,7 @@ class MainWindow(QMainWindow):
         # Variable selector
         self.variable_combo = QComboBox()
         self.variable_combo.setToolTip("V: Variable")
-        self.variable_combo.addItems(["U", "V", "K", "Ω", "φ"])
+        self.variable_combo.addItems(["U", "V", "K", "Ω", "ψ"])
 
         # Grid-size selector (N)
         self.n_combo = QComboBox()
@@ -459,6 +472,15 @@ class MainWindow(QMainWindow):
         self.k0_combo.addItems(["1", "2", "3", "4", "5", "6", "7", "8", "9", "10",
                                 "12", "15", "20", "25", "35", "50", "90"])
         self.k0_combo.setCurrentText(str(int(self.sim.k0)))
+
+        # Start-spectrum selector
+        self.start_spectrum_combo = QComboBox()
+        self.start_spectrum_combo.setToolTip("Start spectrum: KM3 k^-3 or PAO k*exp(-(k/K0)^2)")
+        for label, mode in START_SPECTRUM_ITEMS:
+            self.start_spectrum_combo.addItem(label, mode)
+        idx = self.start_spectrum_combo.findData(self.sim.start_spectrum)
+        if idx >= 0:
+            self.start_spectrum_combo.setCurrentIndex(idx)
 
         # Colormap selector
         self.cmap_combo = QComboBox()
@@ -484,7 +506,9 @@ class MainWindow(QMainWindow):
         # Update selector
         self.update_combo = QComboBox()
         self.update_combo.setToolTip("U: Update intervall")
-        self.update_combo.addItems(["1", "2", "5", "10", "20", "50", "100", "1E3", "2E3", "3E3"])
+        self.update_combo.addItems(["1", "2", "5", "10", "20", "50", "100", "200", "500", "1E3", "2E3", "3E3"])
+        if self.update_combo.findText(update) < 0:
+            self.update_combo.addItem(update)
         self.update_combo.setCurrentText(update)
 
         self.auto_reset_checkbox = QCheckBox()
@@ -497,17 +521,10 @@ class MainWindow(QMainWindow):
             self.cmap_combo.setStyle(QStyleFactory.create(FUSION))
             self.n_combo.setStyle(QStyleFactory.create(FUSION))
             self.k0_combo.setStyle(QStyleFactory.create(FUSION))
+            self.start_spectrum_combo.setStyle(QStyleFactory.create(FUSION))
             self.cfl_combo.setStyle(QStyleFactory.create(FUSION))
             self.steps_combo.setStyle(QStyleFactory.create(FUSION))
             self.update_combo.setStyle(QStyleFactory.create(FUSION))
-
-        # Lower combobox font size by 2pt so all controls fit on one row
-        for combo in (self.variable_combo, self.n_combo, self.k0_combo,
-                      self.cmap_combo, self.cfl_combo, self.steps_combo,
-                      self.update_combo):
-            f = combo.font()
-            f.setPointSize(11)
-            combo.setFont(f)
 
         self._build_layout()
 
@@ -536,6 +553,7 @@ class MainWindow(QMainWindow):
         self.cmap_combo.currentTextChanged.connect(self.on_cmap_changed)  # type: ignore[attr-defined]
         self.n_combo.currentTextChanged.connect(self.on_n_changed)  # type: ignore[attr-defined]
         self.k0_combo.currentTextChanged.connect(self.on_k0_changed)  # type: ignore[attr-defined]
+        self.start_spectrum_combo.currentIndexChanged.connect(self.on_start_spectrum_changed)  # type: ignore[attr-defined]
         self.cfl_combo.currentTextChanged.connect(self.on_cfl_changed)  # type: ignore[attr-defined]
         self.steps_combo.currentTextChanged.connect(self.on_steps_changed)  # type: ignore[attr-defined]
         self.update_combo.currentTextChanged.connect(self.on_update_changed)  # type: ignore[attr-defined]
@@ -578,6 +596,8 @@ class MainWindow(QMainWindow):
         # set combobox data
         self.on_steps_changed(self.steps_combo.currentText())
         self.on_update_changed(self.update_combo.currentText())
+        if self.mov_enabled:
+            self._init_movie_capture()
         self.on_start_clicked()  # auto-start simulation immediately
 
     # ------------------------------------------------------------------
@@ -589,12 +609,21 @@ class MainWindow(QMainWindow):
 
         central = QWidget()
         main = QVBoxLayout(central)
-        main.setSpacing(3)
+        margins = main.contentsMargins()
+        main.setContentsMargins(
+            margins.left() // 2,
+            margins.top() // 2,
+            margins.right() // 2,
+            margins.bottom() // 2,
+        )
+        main.setSpacing(0)
         main.addWidget(self.image_label)
+        main.addSpacing(0)
 
         # Button row
         row1 = QHBoxLayout()
         row1.setContentsMargins(5, 0, 0, 0)
+        row1.setSpacing(4)
         row1.setAlignment(Qt.AlignmentFlag.AlignLeft)
         row1.addWidget(self.start_button)
         row1.addWidget(self.stop_button)
@@ -604,18 +633,26 @@ class MainWindow(QMainWindow):
         row1.addWidget(self.load_button)
         row1.addWidget(self.spectrum_button)
         row1.addWidget(self.metrics_button)
-        row1.addSpacing(1)
-        row1.addWidget(self.n_combo)
-        row1.addWidget(self.variable_combo)
-        row1.addWidget(self.cmap_combo)
         row1.addWidget(self.re_edit)
-        row1.addWidget(self.k0_combo)
-        row1.addWidget(self.cfl_combo)
-        row1.addWidget(self.update_combo)
-        row1.addWidget(self.steps_combo)
         row1.addWidget(self.auto_reset_checkbox)
         row1.addStretch(1)
         main.addLayout(row1)
+
+        # Combobox/control row
+        row2 = QHBoxLayout()
+        row2.setContentsMargins(5, 0, 0, 0)
+        row2.setSpacing(4)
+        row2.setAlignment(Qt.AlignmentFlag.AlignLeft)
+        row2.addWidget(self.n_combo)
+        row2.addWidget(self.variable_combo)
+        row2.addWidget(self.cmap_combo)
+        row2.addWidget(self.k0_combo)
+        row2.addWidget(self.cfl_combo)
+        row2.addWidget(self.update_combo)
+        row2.addWidget(self.steps_combo)
+        row2.addWidget(self.start_spectrum_combo)
+        row2.addStretch(1)
+        main.addLayout(row2)
 
         self.setCentralWidget(central)
 
@@ -698,12 +735,15 @@ class MainWindow(QMainWindow):
         if variable == "omega":
             dns_all.dns_om2_phys(S)
             return xp.asarray(S.ur_full[2], dtype=xp.float32)
+        if variable == "stream":
+            dns_all.dns_stream_func(S)
+            return xp.asarray(S.ur_full[2], dtype=xp.float32)
         raise ValueError(f"Unknown variable: {variable}")
 
     def _get_full_field(self, variable: str) -> np.ndarray:
         """
         Return a 2D float32 array (NZ_full × NX_full) for variable:
-            'u', 'v', 'kinetic', 'omega'
+            'u', 'v', 'kinetic', 'omega', 'stream'
         """
         field = self._get_full_field_raw(variable)
         S = self.sim.state
@@ -793,9 +833,8 @@ class MainWindow(QMainWindow):
         kz = xp.fft.fftfreq(NZ) * NZ
         KZ, KX = xp.meshgrid(kz, kx, indexing="ij")
 
-        # Normalized radial wavenumber: k / (N/2)
-        N = float(min(NX, NZ))
-        k_nyq = 0.5 * N
+        # Normalize by the DNS retained-grid Nyquist, not the 3/2 display grid.
+        k_nyq = 0.5 * float(self.sim.N)
         R = xp.sqrt(KX * KX + KZ * KZ) / k_nyq
 
         # Exclude the DC bin (R==0) from the radial statistics
@@ -949,8 +988,10 @@ class MainWindow(QMainWindow):
             f"K0={self.sim.k0:g}\n"
             f"Re={self.sim.re:,.0f}\n"
             f"CFL={self.sim.cfl:.2f}\n"
+            f"Spectrum={self.sim.start_spectrum}\n"
             f"visc={float(self.sim.state.visc):.3g}\n"
             f"T={float(self.sim.get_time()):.6g}\n"
+            f"DT={float(self.sim.state.dt):.6f}\n"
             f"IT={int(self.sim.get_iteration())}\n"
             f"Update={int(self._update_intervall)}\n"
             f"σ={int(self.sig)}\n"
@@ -967,6 +1008,12 @@ class MainWindow(QMainWindow):
         s = f"{x:.{decimals}E}"
         return s.replace("E+", "E").replace("e+", "e")
 
+    def _update_suffix(self) -> str:
+        return f"U{int(self._update_intervall)}"
+
+    def _spectrum_suffix(self) -> str:
+        return self.sim.start_spectrum
+
     def on_folder_clicked(self) -> None:
         # --- Build the default folder name ---
         N = self.sim.N
@@ -974,7 +1021,7 @@ class MainWindow(QMainWindow):
         K0 = int(self.sim.k0)
         CFL = self.sim.cfl
         STEPS = self.sim.get_iteration()
-        suffix = f"{N}_{K0}_{self.sci_no_plus(Re)}_{CFL}_{STEPS}"
+        suffix = f"{N}_{K0}_{self.sci_no_plus(Re)}_{CFL}_{self._update_suffix()}_{self._spectrum_suffix()}_{STEPS}"
         folder = f"palinstrophy_{suffix}"
 
         # Default root = Desktop
@@ -1014,11 +1061,12 @@ class MainWindow(QMainWindow):
         self._dump_pgm_full(v, os.path.join(folder_path, "v_velocity.pgm"))
         self._dump_pgm_full(self._get_full_field("kinetic"), os.path.join(folder_path, "kinetic.pgm"))
         self._dump_pgm_full(self._get_full_field("omega"), os.path.join(folder_path, "omega.pgm"))
+        self._dump_pgm_full(self._get_full_field("stream"), os.path.join(folder_path, "stream.pgm"))
         # Textbook enstrophy cascade check: E(k) from u,v in Fourier space (expect ~k^-3 range)
         self._save_energy_spectrum_uv(u, v, os.path.join(folder_path, f"energy_spectrum_{suffix}.png"))
-        N, K0, Re, CFL, VISC, STEPS, PALIN, SIG, TIME, MINUTES, FPS = self.get_csv_tuple()
+        N, K0, Re, CFL, VISC, STEPS, PALIN, SIG, TIME, DT, MINUTES, FPS = self.get_csv_tuple()
         print(", ".join(CSV_HEADER))
-        print(f"{N}, {K0}, {Re:.4e}, {CFL}, {VISC:.4e}, {STEPS}, {PALIN}, {SIG}, {TIME:.2e}, {MINUTES:.2f}, {FPS:.1f}")
+        print(f"{N}, {K0}, {Re:.4e}, {CFL}, {VISC:.4e}, {STEPS}, {PALIN}, {SIG}, {TIME:.2e}, {DT:.6e}, {MINUTES:.2f}, {FPS:.1f}")
         self.write_plot_csv(folder_path)
 
         # ---- store restart data as parquet files ----
@@ -1041,12 +1089,14 @@ class MainWindow(QMainWindow):
         import pyarrow.parquet as pq
 
         S = self.sim.state
+        dns_all.sync_time_scalars_from_device(S)
 
         # 1) scalar metadata
         meta = pa.table({
             "Nbase": [int(S.Nbase)],
             "Re": [float(S.Re)],
             "K0": [float(S.K0)],
+            "start_spectrum": [str(S.start_spectrum)],
             "visc": [float(S.visc)],
             "cflnum": [float(S.cflnum)],
             "seed_init": [int(S.seed_init)],
@@ -1125,6 +1175,7 @@ class MainWindow(QMainWindow):
         N = int(meta["Nbase"][0])
         Re = float(meta["Re"][0])
         K0 = float(meta["K0"][0])
+        start_spectrum = cast(dns_all.SPECTRUM, meta["start_spectrum"][0])
         visc = float(meta["visc"][0])
         cflnum = float(meta["cflnum"][0])
         seed_init = int(meta["seed_init"][0])
@@ -1159,6 +1210,7 @@ class MainWindow(QMainWindow):
         self.sim.re = Re
         self.sim.k0 = K0
         self.sim.cfl = cflnum
+        self.sim.start_spectrum = start_spectrum
         self.sim.set_N(N, skip_pao=True)
 
         S = self.sim.state
@@ -1177,6 +1229,7 @@ class MainWindow(QMainWindow):
         # 6) restore scalars
         S.Re = Re
         S.K0 = K0
+        S.start_spectrum = start_spectrum
         S.visc = visc
         S.cflnum = cflnum
         S.seed_init = seed_init
@@ -1199,7 +1252,6 @@ class MainWindow(QMainWindow):
         S.uc_full[:, :S.NZ, :NK] = xp.transpose(S.uc, (2, 0, 1))
 
         # 7) rebuild physical fields from spectral
-        from palinstrophy import turbo_simulator as dns_all
         import scipy.fft as spfft
         if S.backend == "cpu":
             with spfft.set_workers(self.sim.fft_workers):
@@ -1215,6 +1267,12 @@ class MainWindow(QMainWindow):
         self.k0_combo.blockSignals(True)
         self.k0_combo.setCurrentText(str(int(K0)))
         self.k0_combo.blockSignals(False)
+
+        self.start_spectrum_combo.blockSignals(True)
+        idx = self.start_spectrum_combo.findData(start_spectrum)
+        if idx >= 0:
+            self.start_spectrum_combo.setCurrentIndex(idx)
+        self.start_spectrum_combo.blockSignals(False)
 
         self.cfl_combo.blockSignals(True)
         self.cfl_combo.setCurrentText(str(cflnum))
@@ -1247,7 +1305,7 @@ class MainWindow(QMainWindow):
             self._position_modals()
 
         wall_sec = time.time() - t_wall_start
-        print(f"[LOAD] Restored case from {folder_path}: N={N}, Re={Re:.4e}, K0={K0}, t={t:.6e}, it={it} ({wall_sec:.2f}s)")
+        print(f"[LOAD] Restored case from {folder_path}: N={N}, Re={Re:.4e}, K0={K0}, spectrum={start_spectrum}, t={t:.6e}, it={it} ({wall_sec:.2f}s)")
 
     def _make_metrics_fig(self, modal: bool = False):
         """Build the metrics figure and return it, or None if not enough data."""
@@ -1255,7 +1313,7 @@ class MainWindow(QMainWindow):
             return None
         import matplotlib.pyplot as plt
         from matplotlib.artist import Artist
-        # unpack rows: (N, K0, Re, CFL, VISC, STEPS, PALIN, SIG, TIME, MINUTES, FPS)
+        # unpack rows: (N, K0, Re, CFL, VISC, STEPS, PALIN, SIG, TIME, DT, MINUTES, FPS)
         time = np.array([r[8] for r in self._csv_rows], dtype=np.float64)
         re_vals = np.array([r[2] for r in self._csv_rows], dtype=np.float64)
         palin_vals = np.array([r[6] for r in self._csv_rows], dtype=np.float64)
@@ -1488,6 +1546,16 @@ class MainWindow(QMainWindow):
         self._sim_start_iter = self.sim.get_iteration()
         self._update_image(self.sim.get_frame_pixels())
 
+    def on_start_spectrum_changed(self, index: int = -1) -> None:
+        mode = cast(dns_all.SPECTRUM, self.start_spectrum_combo.currentData())
+        if mode == self.sim.start_spectrum:
+            return
+        self.sim.start_spectrum = mode
+        self.sim.reset_field()
+        self._sim_start_time = time.time()
+        self._sim_start_iter = self.sim.get_iteration()
+        self._update_image(self.sim.get_frame_pixels())
+
     def on_cfl_changed(self, value: str) -> None:
         self.sim.cfl = float(value)
         self.sim.state.cflnum = self.sim.cfl
@@ -1499,15 +1567,64 @@ class MainWindow(QMainWindow):
     def on_update_changed(self, value: str) -> None:
         self._update_intervall = int(float(value))
 
+    def _movie_frame_interval(self) -> int:
+        return max(1, int(self._update_intervall))
+
     # ------------------------------------------------------------------
+    def _init_movie_capture(self) -> None:
+        N = int(self.sim.N)
+        K0 = int(self.sim.k0)
+        Re = self._movie_initial_re
+        CFL = self.sim.cfl
+        suffix = f"{N}_{K0}_{self.sci_no_plus(Re)}_{CFL}_{self._update_suffix()}_{self._spectrum_suffix()}"
+
+        desktop = QStandardPaths.writableLocation(QStandardPaths.StandardLocation.DesktopLocation)
+        if not desktop:
+            desktop = str(Path.home() / "Desktop")
+
+        folder_path = os.path.join(desktop, "movies", f"palinstrophy_{suffix}")
+        os.makedirs(folder_path, exist_ok=True)
+        self._movie_folder_path = folder_path
+        print(f"[MOV] Saving {MOVIE_FRAME_STEM}_%04d.png every {self._movie_frame_interval()} steps to {folder_path}")
+
+    def _save_movie_frame(self) -> None:
+        if not self.mov_enabled or not self._movie_folder_path:
+            return
+
+        iteration = self.sim.get_iteration()
+        if iteration <= 0 or iteration % self._movie_frame_interval() != 0:
+            return
+        if iteration == self._movie_last_saved_iteration:
+            return
+
+        pm = self.image_label.pixmap()
+        if pm is None:
+            return
+
+        self._movie_frame_index += 1
+        self._movie_last_saved_iteration = iteration
+        filename = f"{MOVIE_FRAME_STEM}_{self._movie_frame_index:04d}.png"
+        path = os.path.join(self._movie_folder_path, filename)
+        if not pm.save(path, "PNG"):
+            print(f"[MOV] Failed to save {path}")
+            return
+        print(f"[MOV] Saved {path} at iteration {iteration}")
+
     def _on_timer(self) -> None:
         # one DNS step per timer tick
-        self.sim.step(int(self._update_intervall))
+        update_interval = int(self._update_intervall)
+        self.sim.step(update_interval)
 
         # Count frames since the last GUI update
         self._status_update_counter += 1
 
-        if self._status_update_counter >= int(self._update_intervall):
+        iteration = self.sim.get_iteration()
+        movie_due = self.mov_enabled and iteration > 0 and (iteration % self._movie_frame_interval()) == 0
+        display_due = self._status_update_counter >= update_interval
+
+        if display_due or movie_due:
+            if movie_due:
+                self.sim._next_dt_pending = True
             pixels = self.sim.get_frame_pixels()
             self._update_image(pixels)
 
@@ -1522,11 +1639,14 @@ class MainWindow(QMainWindow):
 
             self._update_status(
                 self.sim.get_time(),
-                self.sim.get_iteration(),
+                iteration,
                 fps,
             )
 
-            self._status_update_counter = 0
+            self._save_movie_frame()
+
+            if display_due:
+                self._status_update_counter = 0
 
         # Optional auto-reset using STEPS combo
         if self.sim.get_iteration() >= self.sim.max_steps:
@@ -1543,16 +1663,16 @@ class MainWindow(QMainWindow):
 
     def quit_sim(self):
         print(f" Max iteration reached: {self.iterations}, exiting...")
-        N, K0, Re, CFL, VISC, STEPS, PALIN, SIG, TIME, MINUTES, FPS = self.get_csv_tuple()
-        print("N, K0, Re, CFL, VISC, STEPS, PALIN, SIG, TIME, MINUTES, FPS")
-        print(f"{N}, {K0}, {Re:.4e}, {CFL}, {VISC:.4e}, {STEPS}, {PALIN}, {SIG}, {TIME:.2e}, {MINUTES:.2f}, {FPS:.1f}")
-        suffix = f"{N}_{K0}_{self.sci_no_plus(Re)}_{CFL}_{STEPS}"
+        N, K0, Re, CFL, VISC, STEPS, PALIN, SIG, TIME, DT, MINUTES, FPS = self.get_csv_tuple()
+        print(", ".join(CSV_HEADER))
+        print(f"{N}, {K0}, {Re:.4e}, {CFL}, {VISC:.4e}, {STEPS}, {PALIN}, {SIG}, {TIME:.2e}, {DT:.6e}, {MINUTES:.2f}, {FPS:.1f}")
+        suffix = f"{N}_{K0}_{self.sci_no_plus(Re)}_{CFL}_{self._update_suffix()}_{self._spectrum_suffix()}_{STEPS}"
         folder = f"simulations/palinstrophy_{suffix}"
         desktop = QStandardPaths.writableLocation(QStandardPaths.StandardLocation.DesktopLocation)
         self.dump_to_folder(desktop, folder, suffix)
         QApplication.quit()
 
-    def get_csv_tuple(self) -> tuple[int, int, float, float, float, int, int, int, float, float, float]:
+    def get_csv_tuple(self) -> tuple[int, int, float, float, float, int, int, int, float, float, float, float]:
         N = self.sim.N
         Re = self.sim.state.Re
         K0 = int(self.sim.k0)
@@ -1562,12 +1682,13 @@ class MainWindow(QMainWindow):
         PALIN = int(10000 * self.palinstrophy_over_enstrophy_kmax2)
         SIG = int(self.sig)
         TIME = self.sim.state.t
+        DT = self.sim.state.dt
         # ---- FPS from simulation start ----
         elapsed = time.time() - self._sim_start_time
         steps = self.sim.get_iteration() - self._sim_start_iter
         MINUTES = elapsed / 60.0
         FPS = steps / elapsed if elapsed > 0 else float("inf")
-        return N, K0, Re, CFL, VISC, STEPS, PALIN, SIG, TIME, MINUTES, FPS
+        return N, K0, Re, CFL, VISC, STEPS, PALIN, SIG, TIME, DT, MINUTES, FPS
 
     # ------------------------------------------------------------------
     @staticmethod
@@ -1820,6 +1941,13 @@ class MainWindow(QMainWindow):
             self.k0_combo.setCurrentIndex((idx + 1) % count)
             return
 
+        # rotate start spectrum (P)
+        if key == Qt.Key.Key_P:
+            idx = self.start_spectrum_combo.currentIndex()
+            count = self.start_spectrum_combo.count()
+            self.start_spectrum_combo.setCurrentIndex((idx + 1) % count)
+            return
+
         # rotate CFL (L)
         if key == Qt.Key.Key_L:
             idx = self.cfl_combo.currentIndex()
@@ -1877,6 +2005,23 @@ def Re_from_N_K0(N, K0):
 Backend = Literal["cpu", "gpu", "auto"]
 
 
+def _parse_mov_arg(args: list[str]) -> int:
+    if len(args) > 9:
+        raw = args[9]
+        if raw.upper() == "MOV":
+            raw = os.environ.get("MOV", "0")
+    else:
+        raw = os.environ.get("MOV", "0")
+
+    if isinstance(raw, str) and raw.lower() in ("true", "yes", "on"):
+        return 1
+
+    try:
+        return 1 if int(float(raw)) != 0 else 0
+    except (TypeError, ValueError):
+        return 0
+
+
 def main() -> None:
     args = sys.argv[1:]
 
@@ -1896,13 +2041,18 @@ def main() -> None:
         default_N = 2048 if importlib.util.find_spec("cupy") is not None else 512
 
     N = int(args[0]) if len(args) > 0 else default_N
-    K0 = float(args[1]) if len(args) > 1 else 15
+    K0 = float(args[1]) if len(args) > 1 else 5
     Re = float(args[2]) if len(args) > 2 else Re_from_N_K0(N, K0)
     STEPS = args[3] if len(args) > 3 else "50000"
     CFL = float(args[4]) if len(args) > 4 else 0.3
 
-    UPDATE = args[6] if len(args) > 6 else "20"
-    ITERATIONS = int(args[7]) if len(args) > 7 else 10 ** 9
+    UPDATE = args[6] if len(args) > 6 else "10"
+    spectrum_str = args[7].upper() if len(args) > 7 else "KM3"
+    if spectrum_str not in get_args(dns_all.SPECTRUM):
+        spectrum_str = "KM3"
+    start_spectrum = cast(dns_all.SPECTRUM, spectrum_str)
+    ITERATIONS = int(args[8]) if len(args) > 8 else 10 ** 9
+    MOV = _parse_mov_arg(args)
 
     app = QApplication(sys.argv)
     icon_file = "palinstrophy.icns" if sys.platform == "darwin" else "palinstrophy.ico"
@@ -1910,9 +2060,9 @@ def main() -> None:
     icon = QIcon(str(icon_path))
     app.setWindowIcon(icon)
 
-    sim = DnsSimulator(n=N, re=Re, k0=K0, cfl=CFL, backend=backend)
+    sim = DnsSimulator(n=N, re=Re, k0=K0, cfl=CFL, backend=backend, start_spectrum=start_spectrum)
     sim.step(1)
-    window = MainWindow(sim, STEPS, UPDATE, ITERATIONS)
+    window = MainWindow(sim, STEPS, UPDATE, ITERATIONS, MOV)
     screen = app.primaryScreen().availableGeometry()
     g = window.geometry()
     g.moveCenter(screen.center())
@@ -1923,4 +2073,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-
