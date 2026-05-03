@@ -637,6 +637,8 @@ class MainWindow(QMainWindow):
         row1.addWidget(self.auto_reset_checkbox)
         row1.addStretch(1)
         main.addLayout(row1)
+        if sys.platform == "win32":
+            main.addSpacing(5)
 
         # Combobox/control row
         row2 = QHBoxLayout()
