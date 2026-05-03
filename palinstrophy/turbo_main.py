@@ -622,7 +622,7 @@ class MainWindow(QMainWindow):
 
         # Button row
         row1 = QHBoxLayout()
-        row1.setContentsMargins(5, 0, 0, 0)
+        row1.setContentsMargins(10, 0, 0, 0)
         row1.setSpacing(4)
         row1.setAlignment(Qt.AlignmentFlag.AlignLeft)
         row1.addWidget(self.start_button)
@@ -642,7 +642,7 @@ class MainWindow(QMainWindow):
 
         # Combobox/control row
         row2 = QHBoxLayout()
-        row2.setContentsMargins(5, 0, 0, 0)
+        row2.setContentsMargins(10, 0, 0, 0)
         row2.setSpacing(4)
         row2.setAlignment(Qt.AlignmentFlag.AlignLeft)
         row2.addWidget(self.n_combo)
