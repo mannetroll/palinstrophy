@@ -33,6 +33,7 @@ from contextlib import nullcontext
 from dataclasses import dataclass
 import datetime as _dt
 import math
+import os
 import sys
 import time
 from typing import Literal, cast
@@ -714,6 +715,8 @@ def create_dns_state(
     NX_half = NX // 2
     visc = 0
 
+    fft_workers = min(8, os.cpu_count() or 1) if effective_backend == "cpu" else 4
+
     state = DnsState(
         xp=xp,
         backend=effective_backend,
@@ -730,7 +733,7 @@ def create_dns_state(
         cflnum=CFL,
         start_spectrum=start_spectrum,
         seed_init=int(seed),
-        fft_workers=4,
+        fft_workers=fft_workers,
         populate_compact_ur=populate_compact_ur,
     )
 
@@ -1053,7 +1056,13 @@ def vfft_full_inverse_uc_full_to_ur_full(S: DnsState) -> None:
     # norm='forward' skips the default 1/N irfft2 scaling so we get the
     # unnormalized result directly — saves one full pass over ur_full.
     if S.backend == "cpu":
-        ur01 = fft.irfft2(UC01, s=(S.NZ_full, S.NX_full), axes=(1, 2), overwrite_x=True, norm='forward')
+        ur01 = fft.irfft2(
+            UC01,
+            axes=(1, 2),
+            overwrite_x=True,
+            workers=S.fft_workers,
+            norm='forward',
+        )
         S.ur_full[0:2, :, :] = ur01
     else:
         plan = S.fft_plan_irfft2_uc01
@@ -1084,7 +1093,12 @@ def vfft_full_forward_ur_full_to_uc_full(S: DnsState) -> None:
 
     if S.backend == "cpu":
         # overwrite_x is safe here (UR_full is overwritten later by STEP2A anyway)
-        UC = fft.rfft2(UR, s=(S.NZ_full, S.NX_full), axes=(1, 2), overwrite_x=True, workers=S.fft_workers)
+        UC = fft.rfft2(
+            UR,
+            axes=(1, 2),
+            overwrite_x=True,
+            workers=S.fft_workers,
+        )
         S.uc_full[...] = UC
     else:
         plan = S.fft_plan_rfft2_ur_full
@@ -1465,7 +1479,6 @@ def dns_step3(S: DnsState, fuse: bool = True) -> None:
         dt = xp.float32(S.dt)
         cnm1 = xp.float32(S.cnm1)
 
-    z_spec = S.step3_z_spec
     divxz = S.step3_divxz
     GA = S.step3_GA
     G2mA2 = S.step3_G2mA2
@@ -1478,9 +1491,13 @@ def dns_step3(S: DnsState, fuse: bool = True) -> None:
     uc1_th = S.step3_uc1_th
     uc2_th = S.step3_uc2_th
     uc3_th = S.step3_uc3_th
-    xp.take(uc0_low, z_spec, axis=0, out=uc1_th)
-    xp.take(uc1_low, z_spec, axis=0, out=uc2_th)
-    xp.take(uc2_low, z_spec, axis=0, out=uc3_th)
+    NZ_half = NZ // 2
+    uc1_th[:NZ_half] = uc0_low[:NZ_half]
+    uc1_th[NZ_half:] = uc0_low[NZ:NZ + NZ_half]
+    uc2_th[:NZ_half] = uc1_low[:NZ_half]
+    uc2_th[NZ_half:] = uc1_low[NZ:NZ + NZ_half]
+    uc3_th[:NZ_half] = uc2_low[:NZ_half]
+    uc3_th[NZ_half:] = uc2_low[NZ:NZ + NZ_half]
 
     tmp_FN = S.scratch1
     tmp_c = S.scratch2
@@ -1488,7 +1505,7 @@ def dns_step3(S: DnsState, fuse: bool = True) -> None:
     xp.multiply(tmp_FN, GA, out=tmp_FN)
     xp.multiply(uc3_th, G2mA2, out=tmp_c)
     xp.add(tmp_FN, tmp_c, out=tmp_FN)
-    tmp_FN *= divxz
+    xp.multiply(tmp_FN, divxz, out=tmp_FN)
 
     VT = xp.float32(0.5) * visc * dt
     ARG = S.step3_ARG
@@ -1500,14 +1517,13 @@ def dns_step3(S: DnsState, fuse: bool = True) -> None:
     c3 = -xp.float32(0.5) * dt * cnm1
 
     NUM = S.step3_NUM
-    NUM[...] = om2
     xp.multiply(om2, ARG, out=tmp_c)
-    NUM -= tmp_c
+    xp.subtract(om2, tmp_c, out=NUM)
 
     xp.multiply(tmp_FN, c2, out=tmp_c)
-    NUM += tmp_c
+    xp.add(NUM, tmp_c, out=NUM)
     xp.multiply(fnm1, c3, out=tmp_c)
-    NUM += tmp_c
+    xp.add(NUM, tmp_c, out=NUM)
 
     xp.divide(NUM, DEN, out=om2)
 
@@ -1515,25 +1531,26 @@ def dns_step3(S: DnsState, fuse: bool = True) -> None:
 
     out1 = S.scratch1
     out2 = S.scratch2
-    out1[...] = 0
-    out2[...] = 0
 
     if NX_half > 1:
         invK2_sub = S.step3_invK2_sub
+        om2_sub = om2[:, 1:]
+        out1_sub = out1[:, 1:]
+        out2_sub = out2[:, 1:]
 
-        out1[:, 1:] = om2[:, 1:]
-        out1[:, 1:] *= invK2_sub
-        out1[:, 1:] *= gamma[:, None]
-        out1[:, 1:] *= xp.complex64(-1.0j)
+        out1_sub[...] = om2_sub
+        xp.multiply(out1_sub, invK2_sub, out=out1_sub)
+        xp.multiply(out1_sub, gamma[:, None], out=out1_sub)
+        xp.multiply(out1_sub, xp.complex64(-1.0j), out=out1_sub)
 
-        out2[:, 1:] = om2[:, 1:]
-        out2[:, 1:] *= invK2_sub
-        out2[:, 1:] *= alfa[1:][None, :]
-        out2[:, 1:] *= xp.complex64(1.0j)
+        out2_sub[...] = om2_sub
+        xp.multiply(out2_sub, invK2_sub, out=out2_sub)
+        xp.multiply(out2_sub, alfa[1:][None, :], out=out2_sub)
+        xp.multiply(out2_sub, xp.complex64(1.0j), out=out2_sub)
 
-    # GPU-optimized ix=0 branch: no fancy indexing gather/scatter
-    out1[:, 0] = 0
+    # ix=0 branch: no fancy indexing gather/scatter.
     out1[:, 0] = xp.complex64(-1.0j) * om2[:, 0] * S.step3_inv_gamma0
+    out2[:, 0] = xp.complex64(0.0 + 0.0j)
 
     uc_full[0, :NZ, :NX_half] = out1
     uc_full[1, :NZ, :NX_half] = out2

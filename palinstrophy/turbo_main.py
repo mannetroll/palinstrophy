@@ -2043,12 +2043,12 @@ def main() -> None:
         default_N = 2048 if importlib.util.find_spec("cupy") is not None else 512
 
     N = int(args[0]) if len(args) > 0 else default_N
-    K0 = float(args[1]) if len(args) > 1 else 5
+    K0 = float(args[1]) if len(args) > 1 else 10
     Re = float(args[2]) if len(args) > 2 else Re_from_N_K0(N, K0)
     STEPS = args[3] if len(args) > 3 else "50000"
     CFL = float(args[4]) if len(args) > 4 else 0.3
 
-    UPDATE = args[6] if len(args) > 6 else "10"
+    UPDATE = args[6] if len(args) > 6 else "20"
     spectrum_str = args[7].upper() if len(args) > 7 else "KM3"
     if spectrum_str not in get_args(dns_all.SPECTRUM):
         spectrum_str = "KM3"
