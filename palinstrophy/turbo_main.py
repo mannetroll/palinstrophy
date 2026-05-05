@@ -2048,7 +2048,7 @@ def main() -> None:
     STEPS = args[3] if len(args) > 3 else "50000"
     CFL = float(args[4]) if len(args) > 4 else 0.3
 
-    UPDATE = args[6] if len(args) > 6 else "20"
+    UPDATE = args[6] if len(args) > 6 else "10"
     spectrum_str = args[7].upper() if len(args) > 7 else "KM3"
     if spectrum_str not in get_args(dns_all.SPECTRUM):
         spectrum_str = "KM3"
