@@ -342,6 +342,7 @@ CSV_HEADER = (
     "TIME", "DT", "MINUTES", "FPS", "U", "L", "TAU_L",
     "T_OVER_TAU_L", "E(J)", "TS",
 )
+CSV_T_OVER_TAU_L_INDEX = CSV_HEADER.index("T_OVER_TAU_L")
 MOVIE_FRAME_STEM = "Ω_Inferno"
 
 
@@ -470,6 +471,12 @@ class MainWindow(QMainWindow):
         self.re_edit.setFixedWidth(100)
         self.re_edit.setText(str(self.sim.re))
 
+        self.t_over_tl_edit = QLineEdit()
+        self.t_over_tl_edit.setToolTip("T/τ_L")
+        self.t_over_tl_edit.setReadOnly(True)
+        self.t_over_tl_edit.setFixedWidth(100)
+        self.t_over_tl_edit.setText(self._format_t_over_tl(self._current_t_over_tl()))
+
         # K0 selector
         self.k0_combo = QComboBox()
         self.k0_combo.setToolTip("K: Initial energy peak wavenumber (K0)")
@@ -538,6 +545,7 @@ class MainWindow(QMainWindow):
         mono = QFontDatabase.systemFont(QFontDatabase.SystemFont.FixedFont)
         self.status.setFont(mono)
         self.re_edit.setFont(mono)
+        self.t_over_tl_edit.setFont(mono)
 
         # Timer-based simulation (no QThread)
         self.timer = QTimer(self)
@@ -639,6 +647,8 @@ class MainWindow(QMainWindow):
         row1.addWidget(self.metrics_button)
         row1.addWidget(self.re_edit)
         row1.addWidget(self.auto_reset_checkbox)
+        row1.addSpacing(8)
+        row1.addWidget(self.t_over_tl_edit)
         row1.addStretch(1)
         main.addLayout(row1)
         if sys.platform == "win32":
@@ -1009,6 +1019,14 @@ class MainWindow(QMainWindow):
         L = 2.0 * math.pi * self._scalar_item(length_sum) / energy_sum_f
         tau_l = L / U if U > 0.0 else float("nan")
         return U, L, tau_l
+
+    def _current_t_over_tl(self) -> float:
+        _, _, tau_l = self.flow_eddy_metrics()
+        return float(self.sim.get_time()) / tau_l if tau_l > 0.0 else float("nan")
+
+    @staticmethod
+    def _format_t_over_tl(t_over_tl: float) -> str:
+        return f" T/τ_L: {t_over_tl:.3g}"
 
     def _refresh_spectrum(self) -> None:
         """Redraw the energy spectrum into the persistent dialog label."""
@@ -1898,6 +1916,7 @@ class MainWindow(QMainWindow):
         # store in memory and write to a CSV file in dump_to_folder() method
         # store in memory (later written to CSV by dump_to_folder)
         row = self.get_csv_tuple()
+        self.t_over_tl_edit.setText(self._format_t_over_tl(row[CSV_T_OVER_TAU_L_INDEX]))
         self._csv_rows.append(row)
 
         k = float(DISPLAY_NORM_K_STD)
