@@ -192,14 +192,14 @@ def _pao_build_ur_and_stats_impl(
                 UR[x, z, 1] = np.complex64(0.0 + 0.0j)
 
                 ABSU2 = np.float32(np.exp(- (K / K0) * (K / K0)) / NORM)
-                if ABSU2 < AMP2_FLOOR:
+                if use_km3_spectrum and ABSU2 < AMP2_FLOOR:
                     ABSU2 = AMP2_FLOOR
                 amp = np.float32(np.sqrt(ABSU2))
                 UR[x, z, 0] = np.complex64(amp) * ARG
             else:
                 denom = np.float32(1.0) + (gz * gz) / (ax * ax)
                 ABSW2 = np.float32(np.exp(- (K / K0) * (K / K0)) / (denom * NORM))
-                if ABSW2 < AMP2_FLOOR:
+                if use_km3_spectrum and ABSW2 < AMP2_FLOOR:
                     ABSW2 = AMP2_FLOOR
                 ampw = np.float32(np.sqrt(ABSW2))
 
