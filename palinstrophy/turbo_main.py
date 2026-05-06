@@ -337,7 +337,11 @@ def _setup_shortcuts(self):
 #   key: ("cpu", NZ, NX) or ("cuda", device_id, NZ, NX)
 #   val: K2 array on the corresponding backend (numpy or cupy)
 _K2_CACHE: dict[tuple, object] = {}
-CSV_HEADER = ("N", "K0", "Re", "CFL", "VISC", "STEPS", "PALIN", "SIG", "TIME", "DT", "MINUTES", "FPS")
+CSV_HEADER = (
+    "N", "K0", "Re", "CFL", "VISC", "STEPS", "PALIN", "SIG",
+    "TIME", "DT", "MINUTES", "FPS", "U", "L", "TAU_L",
+    "T_OVER_TAU_L", "E(J)", "TS",
+)
 MOVIE_FRAME_STEM = "Ω_Inferno"
 
 
@@ -908,6 +912,11 @@ class MainWindow(QMainWindow):
                 fontsize=10,
                 linespacing=1.5,
                 color="black",
+                bbox=dict(
+                    boxstyle="round,pad=0.3",
+                    facecolor=(1, 1, 1, 0.9),
+                    edgecolor="none",
+                ),
             )
 
         fig.tight_layout()
@@ -950,6 +959,57 @@ class MainWindow(QMainWindow):
         self._spectrum_dlg = None
         self._spectrum_lbl = None
 
+    def flow_eddy_metrics(self) -> tuple[float, float, float]:
+        S = self.sim.state
+        xp = S.xp
+        u = S.ur_full[0]
+        v = S.ur_full[1]
+
+        mean_speed2 = xp.mean(u * u + v * v, dtype=xp.float64)
+        U = math.sqrt(max(0.0, self._scalar_item(mean_speed2)))
+
+        k2 = S.step3_K2
+        nx_half = int(k2.shape[1])
+        u_hat = S.step3_uc1_th
+        v_hat = S.step3_uc2_th
+        xp.take(S.uc_full[0, :, :nx_half], S.step3_z_spec, axis=0, out=u_hat)
+        xp.take(S.uc_full[1, :, :nx_half], S.step3_z_spec, axis=0, out=v_hat)
+
+        rfft_weight = getattr(S, "_eddy_rfft_w", None)
+        if rfft_weight is None or rfft_weight.shape[0] != nx_half:
+            rfft_weight = xp.empty(nx_half, dtype=xp.float32)
+            rfft_weight[:] = xp.float32(2.0)
+            rfft_weight[0] = xp.float32(1.0)
+            if nx_half > 1:
+                rfft_weight[-1] = xp.float32(1.0)
+            S._eddy_rfft_w = rfft_weight
+
+        inv_k = getattr(S, "_eddy_inv_k", None)
+        if inv_k is None or inv_k.shape != k2.shape:
+            nonzero = k2 > xp.float32(0.0)
+            inv_k = xp.where(
+                nonzero,
+                xp.float32(1.0) / xp.sqrt(xp.where(nonzero, k2, xp.float32(1.0))),
+                xp.float32(0.0),
+            )
+            S._eddy_inv_k = inv_k
+
+        power = (
+            u_hat.real * u_hat.real + u_hat.imag * u_hat.imag
+            + v_hat.real * v_hat.real + v_hat.imag * v_hat.imag
+        )
+        weighted_power = power * rfft_weight
+        energy_sum = xp.sum(weighted_power, dtype=xp.float64) - weighted_power[0, 0]
+        energy_sum_f = self._scalar_item(energy_sum)
+
+        if energy_sum_f <= 0.0:
+            return U, float("nan"), float("nan")
+
+        length_sum = xp.sum(weighted_power * inv_k, dtype=xp.float64)
+        L = 2.0 * math.pi * self._scalar_item(length_sum) / energy_sum_f
+        tau_l = L / U if U > 0.0 else float("nan")
+        return U, L, tau_l
+
     def _refresh_spectrum(self) -> None:
         """Redraw the energy spectrum into the persistent dialog label."""
         if not hasattr(self, '_spectrum_dlg') or self._spectrum_dlg is None:
@@ -984,6 +1044,11 @@ class MainWindow(QMainWindow):
         steps = self.sim.get_iteration() - self._sim_start_iter
         minutes = elapsed / 60.0
         FPS = steps / elapsed if elapsed > 0 else 0.0
+        TIME = float(self.sim.get_time())
+        U, L, TAU_L = self.flow_eddy_metrics()
+        T_OVER_TAU_L = TIME / TAU_L if TAU_L > 0.0 else float("nan")
+        E_J = self.energy_joules()
+        TS = self.iso_utc_timestamp()
         meta = (
             f"{_dt.datetime.now().strftime('%Y-%m-%d %H:%M')}\n"
             f"N={self.sim.N}\n"
@@ -992,7 +1057,7 @@ class MainWindow(QMainWindow):
             f"CFL={self.sim.cfl:.2f}\n"
             f"Spectrum={self.sim.start_spectrum}\n"
             f"visc={float(self.sim.state.visc):.3g}\n"
-            f"T={float(self.sim.get_time()):.6g}\n"
+            f"T={TIME:.6g}\n"
             f"DT={float(self.sim.state.dt):.6f}\n"
             f"IT={int(self.sim.get_iteration())}\n"
             f"Update={int(self._update_intervall)}\n"
@@ -1000,6 +1065,12 @@ class MainWindow(QMainWindow):
             f"10K*pal/Zkmax²={(10000 * self.palinstrophy_over_enstrophy_kmax2):.1f}\n"
             f"minutes={minutes:.2f}\n"
             f"FPS={FPS:.1f}\n"
+            f"U={U:.4g}\n"
+            f"L={L:.4g}\n"
+            f"τ_L={TAU_L:.4g}\n"
+            f"T/τ_L={T_OVER_TAU_L:.4g}\n"
+            f"E(J)={E_J:.4g}\n"
+            f"TS={TS}\n"
             f"{self.title_backend}"
         )
         return meta
@@ -1066,9 +1137,9 @@ class MainWindow(QMainWindow):
         self._dump_pgm_full(self._get_full_field("stream"), os.path.join(folder_path, "stream.pgm"))
         # Textbook enstrophy cascade check: E(k) from u,v in Fourier space (expect ~k^-3 range)
         self._save_energy_spectrum_uv(u, v, os.path.join(folder_path, f"energy_spectrum_{suffix}.png"))
-        N, K0, Re, CFL, VISC, STEPS, PALIN, SIG, TIME, DT, MINUTES, FPS = self.get_csv_tuple()
+        N, K0, Re, CFL, VISC, STEPS, PALIN, SIG, TIME, DT, MINUTES, FPS, U, L, TAU_L, T_OVER_TAU_L, E_J, TS = self.get_csv_tuple()
         print(", ".join(CSV_HEADER))
-        print(f"{N}, {K0}, {Re:.4e}, {CFL}, {VISC:.4e}, {STEPS}, {PALIN}, {SIG}, {TIME:.2e}, {DT:.6e}, {MINUTES:.2f}, {FPS:.1f}")
+        print(f"{N}, {K0}, {Re:.4e}, {CFL}, {VISC:.4e}, {STEPS}, {PALIN}, {SIG}, {TIME:.2e}, {DT:.6e}, {MINUTES:.2f}, {FPS:.1f}, {U:.6g}, {L:.6g}, {TAU_L:.6g}, {T_OVER_TAU_L:.6g}, {E_J:.6e}, {TS}")
         self.write_plot_csv(folder_path)
 
         # ---- store restart data as parquet files ----
@@ -1315,7 +1386,7 @@ class MainWindow(QMainWindow):
             return None
         import matplotlib.pyplot as plt
         from matplotlib.artist import Artist
-        # unpack rows: (N, K0, Re, CFL, VISC, STEPS, PALIN, SIG, TIME, DT, MINUTES, FPS)
+        # unpack rows: (N, K0, Re, CFL, VISC, STEPS, PALIN, SIG, TIME, DT, MINUTES, FPS, U, L, TAU_L, T_OVER_TAU_L, E(J), TS)
         time = np.array([r[8] for r in self._csv_rows], dtype=np.float64)
         re_vals = np.array([r[2] for r in self._csv_rows], dtype=np.float64)
         palin_vals = np.array([r[6] for r in self._csv_rows], dtype=np.float64)
@@ -1587,7 +1658,7 @@ class MainWindow(QMainWindow):
         folder_path = os.path.join(desktop, "movies", f"palinstrophy_{suffix}")
         os.makedirs(folder_path, exist_ok=True)
         self._movie_folder_path = folder_path
-        print(f"[MOV] Saving {MOVIE_FRAME_STEM}_%04d.png every {self._movie_frame_interval()} steps to {folder_path}")
+        print(f"[MOV] Saving {MOVIE_FRAME_STEM}_%05d.png every {self._movie_frame_interval()} steps to {folder_path}")
 
     def _save_movie_frame(self) -> None:
         if not self.mov_enabled or not self._movie_folder_path:
@@ -1605,7 +1676,7 @@ class MainWindow(QMainWindow):
 
         self._movie_frame_index += 1
         self._movie_last_saved_iteration = iteration
-        filename = f"{MOVIE_FRAME_STEM}_{self._movie_frame_index:04d}.png"
+        filename = f"{MOVIE_FRAME_STEM}_{self._movie_frame_index:05d}.png"
         path = os.path.join(self._movie_folder_path, filename)
         if not pm.save(path, "PNG"):
             print(f"[MOV] Failed to save {path}")
@@ -1665,16 +1736,34 @@ class MainWindow(QMainWindow):
 
     def quit_sim(self):
         print(f" Max iteration reached: {self.iterations}, exiting...")
-        N, K0, Re, CFL, VISC, STEPS, PALIN, SIG, TIME, DT, MINUTES, FPS = self.get_csv_tuple()
+        N, K0, Re, CFL, VISC, STEPS, PALIN, SIG, TIME, DT, MINUTES, FPS, U, L, TAU_L, T_OVER_TAU_L, E_J, TS = self.get_csv_tuple()
         print(", ".join(CSV_HEADER))
-        print(f"{N}, {K0}, {Re:.4e}, {CFL}, {VISC:.4e}, {STEPS}, {PALIN}, {SIG}, {TIME:.2e}, {DT:.6e}, {MINUTES:.2f}, {FPS:.1f}")
+        print(f"{N}, {K0}, {Re:.4e}, {CFL}, {VISC:.4e}, {STEPS}, {PALIN}, {SIG}, {TIME:.2e}, {DT:.6e}, {MINUTES:.2f}, {FPS:.1f}, {U:.6g}, {L:.6g}, {TAU_L:.6g}, {T_OVER_TAU_L:.6g}, {E_J:.6e}, {TS}")
         suffix = f"{N}_{K0}_{self.sci_no_plus(Re)}_{CFL}_{self._update_suffix()}_{self._spectrum_suffix()}_{STEPS}"
         folder = f"simulations/palinstrophy_{suffix}"
         desktop = QStandardPaths.writableLocation(QStandardPaths.StandardLocation.DesktopLocation)
         self.dump_to_folder(desktop, folder, suffix)
         QApplication.quit()
 
-    def get_csv_tuple(self) -> tuple[int, int, float, float, float, int, int, int, float, float, float, float]:
+    def energy_joules(self) -> float:
+        S = self.sim.state
+        xp = S.xp
+        u = S.ur_full[0]
+        v = S.ur_full[1]
+
+        velocity_sq_sum = xp.sum(u * u, dtype=xp.float64) + xp.sum(v * v, dtype=xp.float64)
+        # Unit-density kinetic energy integral over the periodic domain.
+        domain_area = (2.0 * math.pi) ** 2
+        value = 0.5 * domain_area * velocity_sq_sum / u.size
+        if hasattr(value, "get"):
+            value = value.get()
+        return float(value)
+
+    @staticmethod
+    def iso_utc_timestamp() -> str:
+        return _dt.datetime.now(_dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+    def get_csv_tuple(self) -> tuple[int, int, float, float, float, int, int, int, float, float, float, float, float, float, float, float, float, str]:
         N = self.sim.N
         Re = self.sim.state.Re
         K0 = int(self.sim.k0)
@@ -1690,7 +1779,11 @@ class MainWindow(QMainWindow):
         steps = self.sim.get_iteration() - self._sim_start_iter
         MINUTES = elapsed / 60.0
         FPS = steps / elapsed if elapsed > 0 else float("inf")
-        return N, K0, Re, CFL, VISC, STEPS, PALIN, SIG, TIME, DT, MINUTES, FPS
+        U, L, TAU_L = self.flow_eddy_metrics()
+        T_OVER_TAU_L = TIME / TAU_L if TAU_L > 0.0 else float("nan")
+        E_J = self.energy_joules()
+        TS = self.iso_utc_timestamp()
+        return N, K0, Re, CFL, VISC, STEPS, PALIN, SIG, TIME, DT, MINUTES, FPS, U, L, TAU_L, T_OVER_TAU_L, E_J, TS
 
     # ------------------------------------------------------------------
     @staticmethod
@@ -2043,7 +2136,7 @@ def main() -> None:
         default_N = 2048 if importlib.util.find_spec("cupy") is not None else 512
 
     N = int(args[0]) if len(args) > 0 else default_N
-    K0 = float(args[1]) if len(args) > 1 else 10
+    K0 = float(args[1]) if len(args) > 1 else 5
     Re = float(args[2]) if len(args) > 2 else Re_from_N_K0(N, K0)
     STEPS = args[3] if len(args) > 3 else "50000"
     CFL = float(args[4]) if len(args) > 4 else 0.3

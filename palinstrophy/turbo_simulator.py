@@ -715,7 +715,7 @@ def create_dns_state(
     NX_half = NX // 2
     visc = 0
 
-    fft_workers = min(8, os.cpu_count() or 1) if effective_backend == "cpu" else 4
+    fft_workers = min(8, os.cpu_count() or 1)
 
     state = DnsState(
         xp=xp,
@@ -1479,6 +1479,7 @@ def dns_step3(S: DnsState, fuse: bool = True) -> None:
         dt = xp.float32(S.dt)
         cnm1 = xp.float32(S.cnm1)
 
+    z_spec = S.step3_z_spec
     divxz = S.step3_divxz
     GA = S.step3_GA
     G2mA2 = S.step3_G2mA2
@@ -1491,13 +1492,18 @@ def dns_step3(S: DnsState, fuse: bool = True) -> None:
     uc1_th = S.step3_uc1_th
     uc2_th = S.step3_uc2_th
     uc3_th = S.step3_uc3_th
-    NZ_half = NZ // 2
-    uc1_th[:NZ_half] = uc0_low[:NZ_half]
-    uc1_th[NZ_half:] = uc0_low[NZ:NZ + NZ_half]
-    uc2_th[:NZ_half] = uc1_low[:NZ_half]
-    uc2_th[NZ_half:] = uc1_low[NZ:NZ + NZ_half]
-    uc3_th[:NZ_half] = uc2_low[:NZ_half]
-    uc3_th[NZ_half:] = uc2_low[NZ:NZ + NZ_half]
+    if S.backend == "cpu":
+        NZ_half = NZ // 2
+        uc1_th[:NZ_half] = uc0_low[:NZ_half]
+        uc1_th[NZ_half:] = uc0_low[NZ:NZ + NZ_half]
+        uc2_th[:NZ_half] = uc1_low[:NZ_half]
+        uc2_th[NZ_half:] = uc1_low[NZ:NZ + NZ_half]
+        uc3_th[:NZ_half] = uc2_low[:NZ_half]
+        uc3_th[NZ_half:] = uc2_low[NZ:NZ + NZ_half]
+    else:
+        xp.take(uc0_low, z_spec, axis=0, out=uc1_th)
+        xp.take(uc1_low, z_spec, axis=0, out=uc2_th)
+        xp.take(uc2_low, z_spec, axis=0, out=uc3_th)
 
     tmp_FN = S.scratch1
     tmp_c = S.scratch2
@@ -1548,7 +1554,7 @@ def dns_step3(S: DnsState, fuse: bool = True) -> None:
         xp.multiply(out2_sub, alfa[1:][None, :], out=out2_sub)
         xp.multiply(out2_sub, xp.complex64(1.0j), out=out2_sub)
 
-    # ix=0 branch: no fancy indexing gather/scatter.
+    # GPU-optimized ix=0 branch: no fancy indexing gather/scatter
     out1[:, 0] = xp.complex64(-1.0j) * om2[:, 0] * S.step3_inv_gamma0
     out2[:, 0] = xp.complex64(0.0 + 0.0j)
 
