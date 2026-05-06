@@ -342,6 +342,8 @@ CSV_HEADER = (
     "TIME", "DT", "MINUTES", "FPS", "U", "L", "TAU_L",
     "T_OVER_TAU_L", "E(J)", "TS",
 )
+CSV_U_INDEX = CSV_HEADER.index("U")
+CSV_L_INDEX = CSV_HEADER.index("L")
 CSV_T_OVER_TAU_L_INDEX = CSV_HEADER.index("T_OVER_TAU_L")
 MOVIE_FRAME_STEM = "Ω_Inferno"
 
@@ -474,8 +476,10 @@ class MainWindow(QMainWindow):
         self.t_over_tl_edit = QLineEdit()
         self.t_over_tl_edit.setToolTip("T/τ_L")
         self.t_over_tl_edit.setReadOnly(True)
-        self.t_over_tl_edit.setFixedWidth(100)
-        self.t_over_tl_edit.setText(self._format_t_over_tl(self._current_t_over_tl()))
+        self.t_over_tl_edit.setFrame(False)
+        self.t_over_tl_edit.setFixedWidth(260)
+        self.t_over_tl_edit.setStyleSheet("QLineEdit { background: transparent; border: none; padding: 0; }")
+        self.t_over_tl_edit.setText(self._format_eddy_metrics(*self._current_eddy_metrics()))
 
         # K0 selector
         self.k0_combo = QComboBox()
@@ -1020,13 +1024,14 @@ class MainWindow(QMainWindow):
         tau_l = L / U if U > 0.0 else float("nan")
         return U, L, tau_l
 
-    def _current_t_over_tl(self) -> float:
-        _, _, tau_l = self.flow_eddy_metrics()
-        return float(self.sim.get_time()) / tau_l if tau_l > 0.0 else float("nan")
+    def _current_eddy_metrics(self) -> tuple[float, float, float]:
+        U, L, tau_l = self.flow_eddy_metrics()
+        t_over_tl = float(self.sim.get_time()) / tau_l if tau_l > 0.0 else float("nan")
+        return t_over_tl, U, L
 
     @staticmethod
-    def _format_t_over_tl(t_over_tl: float) -> str:
-        return f" T/τ_L: {t_over_tl:.3g}"
+    def _format_eddy_metrics(t_over_tl: float, U: float, L: float) -> str:
+        return f" T/τ_L: {t_over_tl:6.3f} | U: {U:5.3f} | L: {L:5.3f}"
 
     def _refresh_spectrum(self) -> None:
         """Redraw the energy spectrum into the persistent dialog label."""
@@ -1916,7 +1921,11 @@ class MainWindow(QMainWindow):
         # store in memory and write to a CSV file in dump_to_folder() method
         # store in memory (later written to CSV by dump_to_folder)
         row = self.get_csv_tuple()
-        self.t_over_tl_edit.setText(self._format_t_over_tl(row[CSV_T_OVER_TAU_L_INDEX]))
+        self.t_over_tl_edit.setText(self._format_eddy_metrics(
+            row[CSV_T_OVER_TAU_L_INDEX],
+            row[CSV_U_INDEX],
+            row[CSV_L_INDEX],
+        ))
         self._csv_rows.append(row)
 
         k = float(DISPLAY_NORM_K_STD)
@@ -1960,7 +1969,7 @@ class MainWindow(QMainWindow):
 
         txt = (
             f"  FPS: {fps_str} | pal/Zkmax²: {pr_str} | σ: {sig_str} | Iter: {it:5d} | T: {t:6.3f} | dt: {dt:.6f} "
-            f"| {elapsed_min:4.1f} min | Visc: {visc:8.3g} | {_dt.datetime.now().strftime('%Y-%m-%d %H:%M')}"
+            f"| {elapsed_min:4.1f} min | Visc: {visc:8.2e} | {_dt.datetime.now().strftime('%Y-%m-%d %H:%M')}"
         )
         self.status.showMessage(txt)
 
