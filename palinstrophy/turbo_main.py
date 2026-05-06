@@ -473,13 +473,9 @@ class MainWindow(QMainWindow):
         self.re_edit.setFixedWidth(100)
         self.re_edit.setText(str(self.sim.re))
 
-        self.t_over_tl_edit = QLineEdit()
-        self.t_over_tl_edit.setToolTip("T/τ_L")
-        self.t_over_tl_edit.setReadOnly(True)
-        self.t_over_tl_edit.setFrame(False)
-        self.t_over_tl_edit.setFixedWidth(260)
-        self.t_over_tl_edit.setStyleSheet("QLineEdit { background: transparent; border: none; padding: 0; }")
-        self.t_over_tl_edit.setText(self._format_eddy_metrics(*self._current_eddy_metrics()))
+        self.t_over_tl_label = QLabel()
+        self.t_over_tl_label.setFixedWidth(260)
+        self.t_over_tl_label.setText(self._format_eddy_metrics(*self._current_eddy_metrics()))
 
         # K0 selector
         self.k0_combo = QComboBox()
@@ -549,7 +545,7 @@ class MainWindow(QMainWindow):
         mono = QFontDatabase.systemFont(QFontDatabase.SystemFont.FixedFont)
         self.status.setFont(mono)
         self.re_edit.setFont(mono)
-        self.t_over_tl_edit.setFont(mono)
+        self.t_over_tl_label.setFont(mono)
 
         # Timer-based simulation (no QThread)
         self.timer = QTimer(self)
@@ -649,10 +645,9 @@ class MainWindow(QMainWindow):
         row1.addWidget(self.load_button)
         row1.addWidget(self.spectrum_button)
         row1.addWidget(self.metrics_button)
+        row1.addSpacing(2)
         row1.addWidget(self.re_edit)
-        row1.addWidget(self.auto_reset_checkbox)
-        row1.addSpacing(8)
-        row1.addWidget(self.t_over_tl_edit)
+        row1.addWidget(self.t_over_tl_label)
         row1.addStretch(1)
         main.addLayout(row1)
         if sys.platform == "win32":
@@ -670,6 +665,8 @@ class MainWindow(QMainWindow):
         row2.addWidget(self.cfl_combo)
         row2.addWidget(self.update_combo)
         row2.addWidget(self.steps_combo)
+        row2.addWidget(self.auto_reset_checkbox)
+        row2.addSpacing(8)
         row2.addWidget(self.start_spectrum_combo)
         row2.addStretch(1)
         main.addLayout(row2)
@@ -1921,7 +1918,7 @@ class MainWindow(QMainWindow):
         # store in memory and write to a CSV file in dump_to_folder() method
         # store in memory (later written to CSV by dump_to_folder)
         row = self.get_csv_tuple()
-        self.t_over_tl_edit.setText(self._format_eddy_metrics(
+        self.t_over_tl_label.setText(self._format_eddy_metrics(
             row[CSV_T_OVER_TAU_L_INDEX],
             row[CSV_U_INDEX],
             row[CSV_L_INDEX],
