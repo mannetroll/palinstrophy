@@ -35,11 +35,78 @@ import datetime as _dt
 import math
 import os
 import platform
+import re
+import subprocess
 import sys
 import time
 from typing import Literal, cast
 
 import numpy as _np
+
+
+def _format_cuda_version(version: int) -> str | None:
+    if version <= 0:
+        return None
+    major = version // 1000
+    minor = (version % 1000) // 10
+    patch = version % 10
+    if patch:
+        return f"{major}.{minor}.{patch}"
+    return f"{major}.{minor}"
+
+
+def _nvidia_kernel_driver_version() -> str | None:
+    try:
+        with open("/proc/driver/nvidia/version", encoding="utf-8") as f:
+            text = f.read()
+    except OSError:
+        return None
+
+    match = re.search(r"Kernel Module\s+([0-9][0-9.]+)", text)
+    return match.group(1) if match else None
+
+
+def _nvidia_smi_driver_version() -> str | None:
+    try:
+        proc = subprocess.run(
+            ["nvidia-smi", "--query-gpu=driver_version", "--format=csv,noheader"],
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=2,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+
+    if proc.returncode != 0:
+        return None
+    lines = [line.strip() for line in proc.stdout.splitlines() if line.strip()]
+    return lines[0] if lines else None
+
+
+def _cuda_driver_summary(cp_module) -> str:
+    parts: list[str] = []
+
+    nvidia_driver = _nvidia_kernel_driver_version() or _nvidia_smi_driver_version()
+    if nvidia_driver is not None:
+        parts.append(f"NVIDIA driver {nvidia_driver}")
+
+    try:
+        cuda_driver = _format_cuda_version(int(cp_module.cuda.runtime.driverGetVersion()))
+    except Exception:
+        cuda_driver = None
+    if cuda_driver is not None:
+        parts.append(f"CUDA driver {cuda_driver}")
+
+    try:
+        cuda_runtime = _format_cuda_version(int(cp_module.cuda.runtime.runtimeGetVersion()))
+    except Exception:
+        cuda_runtime = None
+    if cuda_runtime is not None:
+        parts.append(f"CUDA runtime {cuda_runtime}")
+
+    return " | ".join(parts)
+
 
 try:
     import cupy as _cp
@@ -48,6 +115,9 @@ try:
     props = _cp.cuda.runtime.getDeviceProperties(dev.id)
     name = props["name"].decode("utf-8") if isinstance(props["name"], (bytes, bytearray)) else str(props["name"])
     print(f"\r\nGPU: {name}")  # e.g. "NVIDIA GeForce RTX 3090"
+    driver_summary = _cuda_driver_summary(_cp)
+    if driver_summary:
+        print(f"GPU driver: {driver_summary}")
     _cflm_max_abs_sum = None
     if _cp is not None:
         _cflm_max_abs_sum = _cp.ReductionKernel(
