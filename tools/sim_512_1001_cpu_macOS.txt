@@ -1,4 +1,4 @@
-$ uv run sim 512 10000 10 1001 0.25 cpu PAO > tools/sim_512_1001_cpu_macOS.log
+$ uv run sim 512 10000 10 1001 0.25 cpu PAO > tools/sim_512_1001_cpu_macOS.txt
 
 CPU: CuPy not installed
 Python: 3.13.11 (CPython) | OS: macOS-15.7.5-arm64-arm-64bit-Mach-O
