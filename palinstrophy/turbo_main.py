@@ -972,59 +972,8 @@ class MainWindow(QMainWindow):
         self._spectrum_dlg = None
         self._spectrum_lbl = None
 
-    def flow_eddy_metrics(self) -> tuple[float, float, float]:
-        S = self.sim.state
-        xp = S.xp
-        u = S.ur_full[0]
-        v = S.ur_full[1]
-
-        mean_speed2 = xp.mean(u * u + v * v, dtype=xp.float64)
-        U = math.sqrt(max(0.0, self._scalar_item(mean_speed2)))
-
-        k2 = S.step3_K2
-        nx_half = int(k2.shape[1])
-        u_hat = S.step3_uc1_th
-        v_hat = S.step3_uc2_th
-        xp.take(S.uc_full[0, :, :nx_half], S.step3_z_spec, axis=0, out=u_hat)
-        xp.take(S.uc_full[1, :, :nx_half], S.step3_z_spec, axis=0, out=v_hat)
-
-        rfft_weight = getattr(S, "_eddy_rfft_w", None)
-        if rfft_weight is None or rfft_weight.shape[0] != nx_half:
-            rfft_weight = xp.empty(nx_half, dtype=xp.float32)
-            rfft_weight[:] = xp.float32(2.0)
-            rfft_weight[0] = xp.float32(1.0)
-            if nx_half > 1:
-                rfft_weight[-1] = xp.float32(1.0)
-            S._eddy_rfft_w = rfft_weight
-
-        inv_k = getattr(S, "_eddy_inv_k", None)
-        if inv_k is None or inv_k.shape != k2.shape:
-            nonzero = k2 > xp.float32(0.0)
-            inv_k = xp.where(
-                nonzero,
-                xp.float32(1.0) / xp.sqrt(xp.where(nonzero, k2, xp.float32(1.0))),
-                xp.float32(0.0),
-            )
-            S._eddy_inv_k = inv_k
-
-        power = (
-            u_hat.real * u_hat.real + u_hat.imag * u_hat.imag
-            + v_hat.real * v_hat.real + v_hat.imag * v_hat.imag
-        )
-        weighted_power = power * rfft_weight
-        energy_sum = xp.sum(weighted_power, dtype=xp.float64) - weighted_power[0, 0]
-        energy_sum_f = self._scalar_item(energy_sum)
-
-        if energy_sum_f <= 0.0:
-            return U, float("nan"), float("nan")
-
-        length_sum = xp.sum(weighted_power * inv_k, dtype=xp.float64)
-        L = 2.0 * math.pi * self._scalar_item(length_sum) / energy_sum_f
-        tau_l = L / U if U > 0.0 else float("nan")
-        return U, L, tau_l
-
     def _current_eddy_metrics(self) -> tuple[float, float, float, float]:
-        U, L, tau_l = self.flow_eddy_metrics()
+        U, L, tau_l = self.sim.state.flow_eddy_metrics()
         t_over_tl = float(self.sim.get_time()) / tau_l if tau_l > 0.0 else float("nan")
         return t_over_tl, U, L, tau_l
 
@@ -1067,7 +1016,7 @@ class MainWindow(QMainWindow):
         minutes = elapsed / 60.0
         FPS = steps / elapsed if elapsed > 0 else 0.0
         TIME = float(self.sim.get_time())
-        U, L, TAU_L = self.flow_eddy_metrics()
+        U, L, TAU_L = self.sim.state.flow_eddy_metrics()
         T_OVER_TAU_L = TIME / TAU_L if TAU_L > 0.0 else float("nan")
         E_J = self.energy_joules()
         TS = self.iso_utc_timestamp()
@@ -1801,7 +1750,7 @@ class MainWindow(QMainWindow):
         steps = self.sim.get_iteration() - self._sim_start_iter
         MINUTES = elapsed / 60.0
         FPS = steps / elapsed if elapsed > 0 else float("inf")
-        U, L, TAU_L = self.flow_eddy_metrics()
+        U, L, TAU_L = self.sim.state.flow_eddy_metrics()
         T_OVER_TAU_L = TIME / TAU_L if TAU_L > 0.0 else float("nan")
         E_J = self.energy_joules()
         TS = self.iso_utc_timestamp()

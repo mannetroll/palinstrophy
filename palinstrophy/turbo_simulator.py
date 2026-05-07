@@ -648,6 +648,60 @@ class DnsState:
         if self.backend == "gpu":
             self.xp.cuda.Stream.null.synchronize()  # type: ignore[attr-defined]
 
+    @staticmethod
+    def _scalar_item(x) -> float:
+        return float(x.item()) if hasattr(x, "item") else float(x)
+
+    def flow_eddy_metrics(self) -> tuple[float, float, float]:
+        xp = self.xp
+        u = self.ur_full[0]
+        v = self.ur_full[1]
+
+        mean_speed2 = xp.mean(u * u + v * v, dtype=xp.float64)
+        U = math.sqrt(max(0.0, self._scalar_item(mean_speed2)))
+
+        k2 = self.step3_K2
+        nx_half = int(k2.shape[1])
+        u_hat = self.step3_uc1_th
+        v_hat = self.step3_uc2_th
+        xp.take(self.uc_full[0, :, :nx_half], self.step3_z_spec, axis=0, out=u_hat)
+        xp.take(self.uc_full[1, :, :nx_half], self.step3_z_spec, axis=0, out=v_hat)
+
+        rfft_weight = getattr(self, "_eddy_rfft_w", None)
+        if rfft_weight is None or rfft_weight.shape[0] != nx_half:
+            rfft_weight = xp.empty(nx_half, dtype=xp.float32)
+            rfft_weight[:] = xp.float32(2.0)
+            rfft_weight[0] = xp.float32(1.0)
+            if nx_half > 1:
+                rfft_weight[-1] = xp.float32(1.0)
+            self._eddy_rfft_w = rfft_weight
+
+        inv_k = getattr(self, "_eddy_inv_k", None)
+        if inv_k is None or inv_k.shape != k2.shape:
+            nonzero = k2 > xp.float32(0.0)
+            inv_k = xp.where(
+                nonzero,
+                xp.float32(1.0) / xp.sqrt(xp.where(nonzero, k2, xp.float32(1.0))),
+                xp.float32(0.0),
+            )
+            self._eddy_inv_k = inv_k
+
+        power = (
+            u_hat.real * u_hat.real + u_hat.imag * u_hat.imag
+            + v_hat.real * v_hat.real + v_hat.imag * v_hat.imag
+        )
+        weighted_power = power * rfft_weight
+        energy_sum = xp.sum(weighted_power, dtype=xp.float64) - weighted_power[0, 0]
+        energy_sum_f = self._scalar_item(energy_sum)
+
+        if energy_sum_f <= 0.0:
+            return U, float("nan"), float("nan")
+
+        length_sum = xp.sum(weighted_power * inv_k, dtype=xp.float64)
+        L = 2.0 * math.pi * self._scalar_item(length_sum) / energy_sum_f
+        tau_l = L / U if U > 0.0 else float("nan")
+        return U, L, tau_l
+
 
 def sync_time_scalars_from_device(S: DnsState) -> None:
     """Refresh host dt/cn/cnm1 after GPU-side timestep updates."""
@@ -2047,7 +2101,8 @@ def run_dns(
                 CFLM = next_dt(S, sync_host=True)
                 if CFLM is None:
                     CFLM = compute_cflm(S)
-                print(f" ITERATION {it:6d} T={S.t:12.10f} DT={S.dt:10.8f} CN={S.cn:10.8f} CFLM={float(CFLM):.6f}")
+                _, _, tau_l = S.flow_eddy_metrics()
+                print(f" ITERATION {it:6d} T={S.t:12.10f} DT={S.dt:10.8f} CN={S.cn:10.8f} CFLM={float(CFLM):.6f} TAU_L={tau_l:.6f}")
             S.t += dt_old
 
         S.sync()
