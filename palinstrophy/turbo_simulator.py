@@ -34,6 +34,7 @@ from dataclasses import dataclass
 import datetime as _dt
 import math
 import os
+import platform
 import sys
 import time
 from typing import Literal, cast
@@ -61,6 +62,7 @@ try:
 except Exception:  # CuPy is optional
     _cp = None
     print("\r\nCPU: CuPy not installed")
+    print(f"Python: {platform.python_version()} ({platform.python_implementation()}) | OS: {platform.platform()}")
 
 import numpy as np  # in addition to your existing _np alias, this is fine
 
