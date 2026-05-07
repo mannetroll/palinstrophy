@@ -62,8 +62,8 @@ try:
 except Exception:  # CuPy is optional
     _cp = None
     print("\r\nCPU: CuPy not installed")
-    print(f"Python: {platform.python_version()} ({platform.python_implementation()}) | OS: {platform.platform()}")
 
+print(f"Python: {platform.python_version()} ({platform.python_implementation()}) | OS: {platform.platform()}")
 import numpy as np  # in addition to your existing _np alias, this is fine
 
 _TIME_SCALAR_INDEX = {"dt": 0, "cn": 1, "cnm1": 2}
