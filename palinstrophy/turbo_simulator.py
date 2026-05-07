@@ -734,10 +734,6 @@ class DnsState:
 
         k2 = self.step3_K2
         nx_half = int(k2.shape[1])
-        u_hat = self.step3_uc1_th
-        v_hat = self.step3_uc2_th
-        xp.take(self.uc_full[0, :, :nx_half], self.step3_z_spec, axis=0, out=u_hat)
-        xp.take(self.uc_full[1, :, :nx_half], self.step3_z_spec, axis=0, out=v_hat)
 
         rfft_weight = getattr(self, "_eddy_rfft_w", None)
         if rfft_weight is None or rfft_weight.shape[0] != nx_half:
@@ -758,10 +754,12 @@ class DnsState:
             )
             self._eddy_inv_k = inv_k
 
-        power = (
-            u_hat.real * u_hat.real + u_hat.imag * u_hat.imag
-            + v_hat.real * v_hat.real + v_hat.imag * v_hat.imag
-        )
+        # Use the compact vorticity spectrum, not uc_full. The GPU inverse FFT
+        # path can clobber uc_full[0:2] while producing ur_full, but om2 remains
+        # the authoritative compact spectral state after STEP3.
+        om2_power = self.om2.real * self.om2.real + self.om2.imag * self.om2.imag
+        safe_k2 = xp.where(k2 > xp.float32(0.0), k2, xp.float32(1.0))
+        power = xp.where(k2 > xp.float32(0.0), om2_power / safe_k2, xp.float32(0.0))
         weighted_power = power * rfft_weight
         energy_sum = xp.sum(weighted_power, dtype=xp.float64) - weighted_power[0, 0]
         energy_sum_f = self._scalar_item(energy_sum)
