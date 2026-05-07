@@ -344,6 +344,7 @@ CSV_HEADER = (
 )
 CSV_U_INDEX = CSV_HEADER.index("U")
 CSV_L_INDEX = CSV_HEADER.index("L")
+CSV_TAU_L_INDEX = CSV_HEADER.index("TAU_L")
 CSV_T_OVER_TAU_L_INDEX = CSV_HEADER.index("T_OVER_TAU_L")
 MOVIE_FRAME_STEM = "Ω_Inferno"
 
@@ -474,7 +475,7 @@ class MainWindow(QMainWindow):
         self.re_edit.setText(str(self.sim.re))
 
         self.t_over_tl_label = QLabel()
-        self.t_over_tl_label.setFixedWidth(260)
+        self.t_over_tl_label.setMinimumWidth(360)
         self.t_over_tl_label.setText(self._format_eddy_metrics(*self._current_eddy_metrics()))
 
         # K0 selector
@@ -647,6 +648,7 @@ class MainWindow(QMainWindow):
         row1.addWidget(self.metrics_button)
         row1.addSpacing(2)
         row1.addWidget(self.re_edit)
+        row1.addSpacing(20)
         row1.addWidget(self.t_over_tl_label)
         row1.addStretch(1)
         main.addLayout(row1)
@@ -1021,14 +1023,14 @@ class MainWindow(QMainWindow):
         tau_l = L / U if U > 0.0 else float("nan")
         return U, L, tau_l
 
-    def _current_eddy_metrics(self) -> tuple[float, float, float]:
+    def _current_eddy_metrics(self) -> tuple[float, float, float, float]:
         U, L, tau_l = self.flow_eddy_metrics()
         t_over_tl = float(self.sim.get_time()) / tau_l if tau_l > 0.0 else float("nan")
-        return t_over_tl, U, L
+        return t_over_tl, U, L, tau_l
 
     @staticmethod
-    def _format_eddy_metrics(t_over_tl: float, U: float, L: float) -> str:
-        return f" T/τ_L: {t_over_tl:6.3f} | U: {U:5.3f} | L: {L:5.3f}"
+    def _format_eddy_metrics(t_over_tl: float, U: float, L: float, TAU_L: float) -> str:
+        return f" T/τ_L: {t_over_tl:6.3f} | U: {U:5.3f} | L: {L:5.3f} | τ_L: {TAU_L:5.3f}"
 
     def _refresh_spectrum(self) -> None:
         """Redraw the energy spectrum into the persistent dialog label."""
@@ -1922,6 +1924,7 @@ class MainWindow(QMainWindow):
             row[CSV_T_OVER_TAU_L_INDEX],
             row[CSV_U_INDEX],
             row[CSV_L_INDEX],
+            row[CSV_TAU_L_INDEX],
         ))
         self._csv_rows.append(row)
 
