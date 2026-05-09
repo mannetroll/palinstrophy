@@ -43,6 +43,32 @@ from typing import Literal, cast
 
 import numpy as _np
 
+SCIPYTURBO_SEED_ENV = "SCIPYTURBO_SEED"
+PAO_SEED_MIN = 1
+PAO_SEED_MAX = 5010
+
+
+def pao_seed_from_env(default: int | None = None) -> int | None:
+    raw = os.environ.get(SCIPYTURBO_SEED_ENV)
+    if raw is None or raw.strip() == "":
+        return default
+
+    try:
+        seed = int(raw.strip(), 10)
+    except ValueError as exc:
+        raise ValueError(
+            f"{SCIPYTURBO_SEED_ENV} must be an integer from "
+            f"{PAO_SEED_MIN} to {PAO_SEED_MAX}; got {raw!r}"
+        ) from exc
+
+    if not PAO_SEED_MIN <= seed <= PAO_SEED_MAX:
+        raise ValueError(
+            f"{SCIPYTURBO_SEED_ENV} must be from "
+            f"{PAO_SEED_MIN} to {PAO_SEED_MAX}; got {seed}"
+        )
+
+    return seed
+
 
 def _format_cuda_version(version: int) -> str | None:
     if version <= 0:
@@ -1043,7 +1069,8 @@ def dns_pao_host_init(S: DnsState, skip_pao: bool = False):
     # ------------------------------------------------------------------
     # Fortran random vector RANVEC(97)
     # ------------------------------------------------------------------
-    seed = [int(S.seed_init)]  # mimics ISEED SAVE
+    seed_in = int(S.seed_init)
+    seed = [seed_in]  # mimics ISEED SAVE
 
     # ------------------------------------------------------------------
     # Generate isotropic random spectrum (Fortran DO 500/510 loops)
@@ -1110,7 +1137,8 @@ def dns_pao_host_init(S: DnsState, skip_pao: bool = False):
     #print(f" Ceps2       = {Ceps2:.8g}")
     #print(f" E1          = {float(E1):.8g}")
     #print(f" E3          = {float(E3):.8g}")
-    print(f" PAO seed    = {seed[0]:.8g}")
+    print(f" PAO seed in = {seed_in:.8g}")
+    print(f" PAO seed out= {seed[0]:.8g}")
 
     # ------------------------------------------------------------------
     # Scatter spectral UR → compact UC(kx,z,comp) buffer (current grid)
@@ -2103,6 +2131,8 @@ def run_dns(
     print(f" Start spectrum = {start_spectrum}")
     print(f" requested = {backend}")
 
+    seed = pao_seed_from_env(1)
+
     start =  time.perf_counter()
 
     free_before = None
@@ -2116,6 +2146,7 @@ def run_dns(
         K0=K0,
         CFL=CFL,
         backend=backend,
+        seed=seed,
         start_spectrum=start_spectrum,
         populate_compact_ur=False,
     )

@@ -5,7 +5,6 @@ from typing import Union, Literal
 import numpy as np
 import math
 import os
-import random
 from palinstrophy import turbo_simulator as dns_all
 from PIL import Image
 
@@ -46,8 +45,9 @@ class DnsSimulator:
         self.k0 = float(k0)
         self.cfl = float(cfl)
         self.start_spectrum = start_spectrum
-        random.seed()
-        self.seed = random.randint(1, 1000)
+        self.seed = dns_all.pao_seed_from_env(
+            1 + (int.from_bytes(os.urandom(8), "little") % dns_all.PAO_SEED_MAX)
+        )
         self.backend = backend
         self.max_steps = 5000
 
@@ -230,8 +230,11 @@ class DnsSimulator:
         self.dt = np.float32(0.0)
         self.cn = np.float32(1.0)
         self.iteration = 0
-        # Pick a fresh PAO seed each reset (LCG is mod 5011 → use 1..5010)
-        seed = 1 + (int.from_bytes(os.urandom(8), "little") % 5010)
+        # Pick a fresh PAO seed each reset unless SCIPYTURBO_SEED pins it.
+        seed = dns_all.pao_seed_from_env(
+            1 + (int.from_bytes(os.urandom(8), "little") % dns_all.PAO_SEED_MAX)
+        )
+        self.seed = seed
 
         # Recreate the Python DNS state and redo the NEXTDT INIT phase
         with spfft.set_workers(self.fft_workers):

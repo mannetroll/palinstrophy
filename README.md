@@ -88,6 +88,14 @@ From the project root:
     $ uv run turbulence
     $ uv run sim
 
+To make the initial PAO field reproducible, set the PAO seed before launching
+the GUI or CLI:
+
+    $ export SCIPYTURBO_SEED=4895
+    $ uv run turbulence
+
+Valid seed values are 1 through 5010.
+
 ## The DNS with SciPy (1024 x 1024)
 
 ![SciPy](https://raw.githubusercontent.com/mannetroll/palinstrophy/v0.1.4/N1024.png)
