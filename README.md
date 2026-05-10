@@ -48,6 +48,7 @@ Run an cupystorm window that:
   - Grid size **N**
   - Reynolds number **Re** (adapted)
   - Initial spectrum peak **K0**
+  - Start spectrum **KM3** or **PAO**
   - CFL number **CFL**
   - Max steps / auto-reset limit
   - GUI update interval (how often to refresh the display)
@@ -63,6 +64,7 @@ Single-key shortcuts (application-wide) for fast control:
 - **N**: cycle grid size
 - **K**: cycle K0
 - **L**: cycle CFL
+- **P**: cycle start spectrum
 - **S**: cycle max steps
 - **U**: cycle update interval
 
@@ -96,13 +98,33 @@ the GUI or CLI:
 
 Valid seed values are 1 through 5010.
 
+### GUI CLI
+
+    $ uv run turbulence N K0 Re STEPS CFL BACKEND UPDATE [SPECTRUM [ITERATIONS]]
+
+Where:
+
+- N          — grid size (e.g. 512)
+- K0         — peak wavenumber of the energy spectrum
+- Re         — Reynolds number (e.g. 10000)
+- STEPS      — max steps before reset/stop
+- CFL        — target CFL number (e.g. 0.1)
+- BACKEND    — "cpu", "gpu", or "auto"
+- UPDATE     — DNS steps per GUI timer update
+- SPECTRUM   — "KM3" or "PAO" (optional, defaults to "KM3")
+- ITERATIONS — total iterations before the GUI quits; if supplied, put SPECTRUM before it
+
+For example, to run KM3 and quit after 100 iterations:
+
+    $ uv run turbulence 512 15 10000 1E5 0.1 auto 10 KM3 100
+
 ## The DNS with SciPy (1024 x 1024)
 
 ![SciPy](https://raw.githubusercontent.com/mannetroll/palinstrophy/v0.1.4/images/N1024.png)
 
 ### Full CLI
 
-    $ python -m palinstrophy.turbo_simulator N Re K0 STEPS CFL BACKEND
+    $ python -m palinstrophy.turbo_simulator N Re K0 STEPS CFL BACKEND [SPECTRUM]
 
 Where:
 
@@ -112,14 +134,18 @@ Where:
 - STEPS   — number of time steps
 - CFL     — target CFL number (e.g. 0.75)
 - BACKEND — "cpu", "gpu", or "auto"
+- SPECTRUM — "KM3" or "PAO" (optional, defaults to "KM3")
 
 Examples:
 
     # CPU run (SciPy with 4 workers)
-    $ python -m palinstrophy.turbo_simulator 256 10000 10 1001 0.75 cpu
+    $ python -m palinstrophy.turbo_simulator 256 10000 10 1001 0.75 cpu KM3
+
+    # CPU run with the original PAO start spectrum
+    $ python -m palinstrophy.turbo_simulator 256 10000 10 1001 0.75 cpu PAO
 
     # Auto-select backend (GPU if CuPy + CUDA are available)
-    $ python -m palinstrophy.turbo_simulator 256 10000 10 1001 0.75 auto
+    $ python -m palinstrophy.turbo_simulator 256 10000 10 1001 0.75 auto KM3
 
 
 ## Enabling GPU with CuPy (CUDA 13)
@@ -144,11 +170,11 @@ Download: https://developer.nvidia.com/cuda-downloads
 
 4. Run in GPU mode:
 
-       $ uv run python -m palinstrophy.turbo_simulator 256 10000 10 1001 0.75 gpu
+       $ uv run python -m palinstrophy.turbo_simulator 256 10000 10 1001 0.75 gpu KM3
 
 Or let the backend auto-detect:
 
-       $ uv run python -m palinstrophy.turbo_simulator 256 10000 10 1001 0.75 auto
+       $ uv run python -m palinstrophy.turbo_simulator 256 10000 10 1001 0.75 auto PAO
 
 
 ## The DNS with CuPy (8192 x 8192) Dedicated GPU memory 18/24 GB
@@ -160,7 +186,7 @@ Or let the backend auto-detect:
 
 ### cProfile (CPU)
 
-    $ python -m cProfile -o turbo_simulator.prof -m palinstrophy.turbo_simulator    
+    $ python -m cProfile -o turbo_simulator.prof -m palinstrophy.turbo_simulator 256 10000 10 201 0.75 cpu KM3
 
 Inspect the results:
 
@@ -188,14 +214,14 @@ Install Scalene:
 
 Run with GUI report:
 
-    $ scalene -m palinstrophy.turbo_simulator 256 10000 10 201 0.75 cpu
+    $ scalene -m palinstrophy.turbo_simulator 256 10000 10 201 0.75 cpu KM3
 
 ### Memory & CPU profiling with Scalene (CLI only)
 
 For a terminal-only summary:
 
-    $ scalene --cli --cpu -m palinstrophy.turbo_simulator 512 10000 10 201 0.75 cpu
-    $ scalene --cli --cpu -m palinstrophy.turbo_main 512 15 10000 1E5 0.1 auto 10 201
+    $ scalene --cli --cpu -m palinstrophy.turbo_simulator 512 10000 10 201 0.75 cpu KM3
+    $ scalene --cli --cpu -m palinstrophy.turbo_main 512 15 10000 1E5 0.1 auto 10 KM3 201
 
 ## The power spectrum of the energy field
 
