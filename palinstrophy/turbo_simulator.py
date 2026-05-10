@@ -30,8 +30,10 @@ The 3/2 de-aliasing, Crank–Nicolson update, and spectral vorticity
 formulas follow the CUDA kernels line-by-line.
 """
 from contextlib import nullcontext
-from dataclasses import dataclass
+import csv
+from dataclasses import dataclass, field
 import datetime as _dt
+import io
 import math
 import os
 import platform
@@ -164,6 +166,14 @@ import numpy as np  # in addition to your existing _np alias, this is fine
 
 _TIME_SCALAR_INDEX = {"dt": 0, "cn": 1, "cnm1": 2}
 SPECTRUM = Literal["PAO", "KM3"]
+
+
+def _csv_comment_line(values) -> str:
+    buf = io.StringIO()
+    writer = csv.writer(buf, lineterminator="")
+    writer.writerow(values)
+    return "# " + buf.getvalue() + "\n"
+
 
 # ===============================================================
 # Optional Numba acceleration (CPU-only) for PAO initialization
@@ -799,6 +809,39 @@ class DnsState:
         return U, L, tau_l
 
 
+@dataclass
+class SpectrumSample:
+    nbins: int = 0
+    r_max: float = 0.0
+    k_nyq: float = 0.0
+    energy: _np.ndarray = field(default_factory=lambda: _np.zeros(0, dtype=_np.float64))
+    count: _np.ndarray = field(default_factory=lambda: _np.zeros(0, dtype=_np.int32))
+
+
+@dataclass
+class SpectrumAverageState:
+    initialized: bool = False
+    has_previous: bool = False
+    since_restart: bool = False
+    Nbase: int = 0
+    NX_full: int = 0
+    NZ_full: int = 0
+    NK_full: int = 0
+    nbins: int = 0
+    sample_count: int = 0
+    first_step: int = 0
+    last_step: int = 0
+    r_max: float = 0.0
+    k_nyq: float = 0.0
+    total_dt: float = 0.0
+    previous_time: float = 0.0
+    first_time: float = 0.0
+    last_time: float = 0.0
+    previous_energy: _np.ndarray = field(default_factory=lambda: _np.zeros(0, dtype=_np.float64))
+    integral_energy: _np.ndarray = field(default_factory=lambda: _np.zeros(0, dtype=_np.float64))
+    count: _np.ndarray = field(default_factory=lambda: _np.zeros(0, dtype=_np.int32))
+
+
 def sync_time_scalars_from_device(S: DnsState) -> None:
     """Refresh host dt/cn/cnm1 after GPU-side timestep updates."""
     if S.backend != "gpu" or S.time_scalars is None:
@@ -1328,6 +1371,7 @@ _STEP2A_PREPARE_KERNEL = None  # created lazily on first GPU call
 _STEP2A_CROP_KERNEL = None  # created lazily on first GPU call
 _STEP3_COPY_CN_KERNEL = None  # created lazily on first GPU call
 _NEXT_DT_UPDATE_KERNEL = None  # created lazily on first GPU call
+_ENERGY_SPECTRUM_UV_KERNEL = None  # created lazily on first GPU spectrum sample
 
 def dns_step2b(S: DnsState) -> None:
     """
@@ -1992,6 +2036,419 @@ def dump_field_as_pgm_full(S: DnsState, comp: int, filename: str) -> None:
     f.close()
     print(f"[DUMP] Wrote {filename} (PGM, {NX_full}x{NZ_full}, "
           f"comp={comp}, min={minv:g}, max={maxv:g})")
+
+
+# ---------------------------------------------------------------------------
+# Energy-spectrum time average (mirrors cuda/mem_cuda.cu)
+# ---------------------------------------------------------------------------
+
+def _compute_energy_spectrum_uv_bins_gpu(S: DnsState, nbins: int, r_max: float, k_nyq: float) -> SpectrumSample:
+    global _ENERGY_SPECTRUM_UV_KERNEL
+
+    if _cp is None:
+        raise RuntimeError("CuPy backend requested but CuPy is unavailable")
+
+    if _ENERGY_SPECTRUM_UV_KERNEL is None:
+        _ENERGY_SPECTRUM_UV_KERNEL = _cp.RawKernel(r'''
+        extern "C" __global__
+        void turbo_energy_spectrum_uv_bins(const float2* uc_full,
+                                           unsigned long long plane,
+                                           int nk,
+                                           int nz,
+                                           int nx,
+                                           int nbins,
+                                           double r_max,
+                                           double k_nyq,
+                                           double fft_scale2,
+                                           double* esum,
+                                           int* cnt)
+        {
+            unsigned long long stride =
+                (unsigned long long)blockDim.x * (unsigned long long)gridDim.x;
+            unsigned long long idx =
+                (unsigned long long)blockIdx.x * (unsigned long long)blockDim.x
+                + (unsigned long long)threadIdx.x;
+
+            while (idx < plane) {
+                int kx = (int)(idx % (unsigned long long)nk);
+                int z = (int)(idx / (unsigned long long)nk);
+                int kz = (z <= nz / 2) ? z : z - nz;
+
+                if (!(kx == 0 && kz == 0)) {
+                    double k2 = (double)kx * (double)kx + (double)kz * (double)kz;
+                    double r = sqrt(k2) / k_nyq;
+                    int bin = (int)floor((r / r_max) * (double)nbins);
+                    if (bin < 0) bin = 0;
+                    if (bin >= nbins) bin = nbins - 1;
+
+                    float2 u = uc_full[idx];
+                    float2 v = uc_full[plane + idx];
+                    double p = (double)u.x * (double)u.x + (double)u.y * (double)u.y +
+                               (double)v.x * (double)v.x + (double)v.y * (double)v.y;
+                    p *= fft_scale2;
+
+                    int weight = (kx > 0 && kx < nx / 2) ? 2 : 1;
+                    if (weight == 2) {
+                        p *= 2.0;
+                    }
+
+                    atomicAdd(&esum[bin], p);
+                    atomicAdd(&cnt[bin], weight);
+                }
+
+                idx += stride;
+            }
+        }
+        ''', "turbo_energy_spectrum_uv_bins")
+
+    nk = int(S.NK_full)
+    nz = int(S.NZ_full)
+    nx = int(S.NX_full)
+    plane = int(nk * nz)
+
+    d_esum = _cp.zeros((nbins,), dtype=_cp.float64)
+    d_cnt = _cp.zeros((nbins,), dtype=_cp.int32)
+
+    threads = 256
+    blocks = min(65535, max(1, (plane + threads - 1) // threads))
+    fft_scale = float(nx * nz)
+    _ENERGY_SPECTRUM_UV_KERNEL(
+        (blocks,),
+        (threads,),
+        (
+            S.uc_full,
+            _np.uint64(plane),
+            _np.int32(nk),
+            _np.int32(nz),
+            _np.int32(nx),
+            _np.int32(nbins),
+            _np.float64(r_max),
+            _np.float64(k_nyq),
+            _np.float64(fft_scale * fft_scale),
+            d_esum,
+            d_cnt,
+        ),
+    )
+
+    return SpectrumSample(
+        nbins=nbins,
+        r_max=r_max,
+        k_nyq=k_nyq,
+        energy=_cp.asnumpy(d_esum).astype(_np.float64, copy=False),
+        count=_cp.asnumpy(d_cnt).astype(_np.int32, copy=False),
+    )
+
+
+def _compute_energy_spectrum_uv_bins_cpu(S: DnsState, nbins: int, r_max: float, k_nyq: float) -> SpectrumSample:
+    uc = _np.asarray(S.uc_full)
+    u_hat = uc[0]
+    v_hat = uc[1]
+
+    nk = int(S.NK_full)
+    nz = int(S.NZ_full)
+    nx = int(S.NX_full)
+    fft_scale2 = float(nx * nz) ** 2
+
+    esum = _np.zeros((nbins,), dtype=_np.float64)
+    count = _np.zeros((nbins,), dtype=_np.int64)
+
+    kx = _np.arange(nk, dtype=_np.float64)
+    kx2 = kx * kx
+    weight = _np.ones((nk,), dtype=_np.float64)
+    if nk > 2:
+        weight[1:nx // 2] = 2.0
+
+    for z in range(nz):
+        kz = z if z <= nz // 2 else z - nz
+        k2 = kx2 + float(kz * kz)
+        if z == 0:
+            mask = k2 > 0.0
+        else:
+            mask = _np.ones((nk,), dtype=bool)
+
+        radii = _np.sqrt(k2[mask]) / k_nyq
+        bins = _np.floor((radii / r_max) * float(nbins)).astype(_np.int64)
+        _np.clip(bins, 0, nbins - 1, out=bins)
+
+        p = (
+            u_hat[z, mask].real.astype(_np.float64) ** 2
+            + u_hat[z, mask].imag.astype(_np.float64) ** 2
+            + v_hat[z, mask].real.astype(_np.float64) ** 2
+            + v_hat[z, mask].imag.astype(_np.float64) ** 2
+        )
+        row_weight = weight[mask]
+        esum += _np.bincount(bins, weights=p * row_weight * fft_scale2, minlength=nbins)
+        count += _np.bincount(bins, weights=row_weight, minlength=nbins).astype(_np.int64)
+
+    return SpectrumSample(
+        nbins=nbins,
+        r_max=r_max,
+        k_nyq=k_nyq,
+        energy=esum,
+        count=count.astype(_np.int32, copy=False),
+    )
+
+
+def compute_energy_spectrum_uv_bins(S: DnsState) -> SpectrumSample:
+    """
+    Shell-sum the kinetic energy spectrum from S.uc_full[0:2].
+
+    The CUDA command-line path forward-FFTs physical velocity before binning,
+    which multiplies the stored spectral coefficients by NX_full*NZ_full. This
+    helper reads the already-current velocity spectrum and applies that same
+    scale factor without mutating S.uc_full or S.ur_full.
+    """
+    if S is None:
+        raise ValueError("DnsState is required")
+
+    nx = int(S.NX_full)
+    nz = int(S.NZ_full)
+    nbins = max(32, 2 * min(nx, nz))
+    r_max = math.sqrt(2.0)
+    k_nyq = 0.5 * float(min(nx, nz))
+
+    if S.backend == "gpu":
+        return _compute_energy_spectrum_uv_bins_gpu(S, nbins, r_max, k_nyq)
+    return _compute_energy_spectrum_uv_bins_cpu(S, nbins, r_max, k_nyq)
+
+
+def mark_spectrum_average_since_restart(average: SpectrumAverageState, S: DnsState | None) -> None:
+    average.__dict__.update(SpectrumAverageState().__dict__)
+    average.since_restart = True
+    if S is not None:
+        average.Nbase = int(S.Nbase)
+        average.NX_full = int(S.NX_full)
+        average.NZ_full = int(S.NZ_full)
+        average.NK_full = int(S.NK_full)
+
+
+def _spectrum_average_geometry_matches(
+    average: SpectrumAverageState,
+    S: DnsState,
+    sample: SpectrumSample,
+) -> bool:
+    return (
+        average.Nbase == int(S.Nbase)
+        and average.NX_full == int(S.NX_full)
+        and average.NZ_full == int(S.NZ_full)
+        and average.NK_full == int(S.NK_full)
+        and average.nbins == int(sample.nbins)
+        and average.previous_energy.shape == sample.energy.shape
+        and average.integral_energy.shape == sample.energy.shape
+        and average.count.shape == sample.count.shape
+    )
+
+
+def initialize_spectrum_average_from_sample(
+    average: SpectrumAverageState,
+    S: DnsState,
+    sample: SpectrumSample,
+    sim_time: float,
+    step: int,
+) -> None:
+    keep_since_restart = bool(average.since_restart)
+    average.initialized = True
+    average.has_previous = True
+    average.since_restart = keep_since_restart
+    average.Nbase = int(S.Nbase)
+    average.NX_full = int(S.NX_full)
+    average.NZ_full = int(S.NZ_full)
+    average.NK_full = int(S.NK_full)
+    average.nbins = int(sample.nbins)
+    average.sample_count = 1
+    average.first_step = int(step)
+    average.last_step = int(step)
+    average.r_max = float(sample.r_max)
+    average.k_nyq = float(sample.k_nyq)
+    average.total_dt = 0.0
+    average.previous_time = float(sim_time)
+    average.first_time = float(sim_time)
+    average.last_time = float(sim_time)
+    average.previous_energy = _np.asarray(sample.energy, dtype=_np.float64).copy()
+    average.integral_energy = _np.zeros_like(average.previous_energy, dtype=_np.float64)
+    average.count = _np.asarray(sample.count, dtype=_np.int32).copy()
+
+
+def update_spectrum_average(
+    average: SpectrumAverageState,
+    S: DnsState,
+    sample: SpectrumSample,
+    sim_time: float,
+    step: int,
+) -> bool:
+    if sample.nbins <= 0 or sample.energy.size == 0 or sample.energy.shape != sample.count.shape:
+        return False
+
+    if not average.initialized:
+        initialize_spectrum_average_from_sample(average, S, sample, sim_time, step)
+        return True
+
+    if not _spectrum_average_geometry_matches(average, S, sample):
+        return False
+
+    sample_energy = _np.asarray(sample.energy, dtype=_np.float64)
+    average.count = _np.asarray(sample.count, dtype=_np.int32).copy()
+    average.r_max = float(sample.r_max)
+    average.k_nyq = float(sample.k_nyq)
+
+    sim_time = float(sim_time)
+    step = int(step)
+    if not average.has_previous:
+        average.has_previous = True
+        average.previous_energy = sample_energy.copy()
+        average.previous_time = sim_time
+        average.first_time = sim_time
+        average.last_time = sim_time
+        average.first_step = step
+        average.last_step = step
+        average.sample_count = 1
+        return True
+
+    if sim_time <= average.previous_time or step == average.last_step:
+        average.previous_energy = sample_energy.copy()
+        average.previous_time = sim_time
+        average.last_time = sim_time
+        average.last_step = step
+        if average.sample_count == 0:
+            average.sample_count = 1
+            average.first_time = sim_time
+            average.first_step = step
+        return True
+
+    dt = sim_time - average.previous_time
+    average.integral_energy += 0.5 * dt * (average.previous_energy + sample_energy)
+    average.total_dt += dt
+    average.previous_energy = sample_energy.copy()
+    average.previous_time = sim_time
+    average.last_time = sim_time
+    average.last_step = step
+    average.sample_count += 1
+    return True
+
+
+def sample_and_update_spectrum_average(
+    S: DnsState,
+    average: SpectrumAverageState,
+    sim_time: float | None = None,
+    step: int | None = None,
+) -> bool:
+    sample = compute_energy_spectrum_uv_bins(S)
+    if sim_time is None:
+        sim_time = float(S.t)
+    if step is None:
+        step = int(S.it)
+    return update_spectrum_average(average, S, sample, float(sim_time), int(step))
+
+
+def spectrum_average_kind(average: SpectrumAverageState) -> str:
+    if average.total_dt > 0.0:
+        return (
+            "simulation-time trapezoid since restart"
+            if average.since_restart
+            else "simulation-time trapezoid"
+        )
+    return "single snapshot since restart" if average.since_restart else "single snapshot"
+
+
+def spectrum_average_mean_energy(average: SpectrumAverageState) -> _np.ndarray:
+    if not average.initialized or not average.has_previous or average.previous_energy.size == 0:
+        raise ValueError("no spectrum samples accumulated")
+    if average.total_dt > 0.0:
+        return average.integral_energy / average.total_dt
+    return average.previous_energy.copy()
+
+
+def save_energy_spectrum_csv_data(
+    filename: str,
+    energy,
+    count,
+    r_max: float,
+    meta_header=None,
+    meta_row=None,
+    average: SpectrumAverageState | None = None,
+    average_kind: str | None = None,
+) -> None:
+    energy_np = _np.asarray(energy, dtype=_np.float64)
+    count_np = _np.asarray(count, dtype=_np.int64)
+    nbins = min(int(energy_np.size), int(count_np.size))
+
+    header = list(meta_header or ())
+    values = list(meta_row or ())
+    if average is not None and average_kind is not None:
+        header.extend(
+            [
+                "AVERAGE_KIND",
+                "SPECTRUM_SAMPLES",
+                "T_START",
+                "T_END",
+                "TOTAL_DT",
+                "FIRST_STEP",
+                "LAST_STEP",
+            ]
+        )
+        values.extend(
+            [
+                average_kind,
+                int(average.sample_count),
+                float(average.first_time),
+                float(average.last_time),
+                float(average.total_dt),
+                int(average.first_step),
+                int(average.last_step),
+            ]
+        )
+
+    with open(filename, "w", newline="") as f:
+        if header and values:
+            f.write(_csv_comment_line(header))
+            f.write(_csv_comment_line(values))
+        writer = csv.writer(f)
+        writer.writerow(("normalized_radius", "shell_sum_energy", "count"))
+        for i in range(nbins):
+            if count_np[i] > 0 and energy_np[i] > 0.0:
+                r0 = float(r_max) * float(i) / float(nbins)
+                r1 = float(r_max) * float(i + 1) / float(nbins)
+                writer.writerow((0.5 * (r0 + r1), energy_np[i], int(count_np[i])))
+
+    label = f"{average_kind} energy spectrum" if average_kind else "energy spectrum"
+    print(f"[CSV] Wrote {filename} ({label}, {nbins} bins)")
+
+
+def save_energy_spectrum_uv_csv(
+    S: DnsState,
+    filename: str,
+    meta_header=None,
+    meta_row=None,
+) -> None:
+    sample = compute_energy_spectrum_uv_bins(S)
+    save_energy_spectrum_csv_data(
+        filename,
+        sample.energy,
+        sample.count,
+        sample.r_max,
+        meta_header=meta_header,
+        meta_row=meta_row,
+    )
+
+
+def save_spectrum_average_csv(
+    average: SpectrumAverageState,
+    filename: str,
+    meta_header=None,
+    meta_row=None,
+) -> None:
+    mean_energy = spectrum_average_mean_energy(average)
+    kind = spectrum_average_kind(average)
+    save_energy_spectrum_csv_data(
+        filename,
+        mean_energy,
+        average.count,
+        average.r_max,
+        meta_header=meta_header,
+        meta_row=meta_row,
+        average=average,
+        average_kind=kind,
+    )
 
 
 # ---------------------------------------------------------------------------

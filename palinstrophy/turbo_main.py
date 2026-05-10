@@ -386,6 +386,8 @@ class MainWindow(QMainWindow):
         # ---- metrics buffer (for CSV dump) ----
         self._csv_rows = []
         self._csv_header = list(CSV_HEADER)
+        self._spectrum_average = dns_all.SpectrumAverageState()
+        self._last_spectrum_sample_step: Optional[int] = None
 
         # --- central image label ---
         self.image_label = QLabel()
@@ -814,6 +816,7 @@ class MainWindow(QMainWindow):
         Reynolds = Re_from_N_K0(self.sim.N, self.sim.k0)
         self._csv_rows.clear()
         self._csv_header = list(CSV_HEADER)
+        self._reset_spectrum_average()
         self.sim.state.visc = 1.0 / Reynolds
         self.sim.re = Reynolds
         self.sim.state.Re = Reynolds
@@ -1119,7 +1122,9 @@ class MainWindow(QMainWindow):
         self._dump_pgm_full(self._get_full_field("stream"), os.path.join(folder_path, "stream.pgm"))
         # Textbook enstrophy cascade check: E(k) from u,v in Fourier space (expect ~k^-3 range)
         self._save_energy_spectrum_uv(u, v, os.path.join(folder_path, f"energy_spectrum_{suffix}.png"))
-        N, K0, Re, CFL, VISC, STEPS, PALIN, SIG, TIME, DT, MINUTES, FPS, U, L, TAU_L, T_OVER_TAU_L, E_J, TS = self.get_csv_tuple()
+        csv_row = self.get_csv_tuple()
+        self._save_timeaverage_energy_spectrum(folder_path, csv_row)
+        N, K0, Re, CFL, VISC, STEPS, PALIN, SIG, TIME, DT, MINUTES, FPS, U, L, TAU_L, T_OVER_TAU_L, E_J, TS = csv_row
         print(", ".join(CSV_HEADER))
         print(f"{N}, {K0}, {Re:.4e}, {CFL}, {VISC:.4e}, {STEPS}, {PALIN}, {SIG}, {TIME:.2e}, {DT:.6e}, {MINUTES:.2f}, {FPS:.1f}, {U:.6g}, {L:.6g}, {TAU_L:.6g}, {T_OVER_TAU_L:.6g}, {E_J:.6e}, {TS}")
         self.write_plot_csv(folder_path)
@@ -1334,6 +1339,7 @@ class MainWindow(QMainWindow):
         self._build_layout()
         self._csv_rows.clear()
         self._csv_header = list(CSV_HEADER)
+        self._reset_spectrum_average(since_restart=True)
         self._sim_start_time = time.time()
         self._sim_start_iter = it
         self._update_image(self.sim.get_frame_pixels())
@@ -1569,6 +1575,9 @@ class MainWindow(QMainWindow):
         self.sim.set_N(N)
         self._csv_rows.clear()
         self._csv_header = list(CSV_HEADER)
+        self._reset_spectrum_average()
+        self._sim_start_time = time.time()
+        self._sim_start_iter = self.sim.get_iteration()
 
         # 1) Update the image first
         self._update_image(self.sim.get_frame_pixels())
@@ -1591,8 +1600,6 @@ class MainWindow(QMainWindow):
         g.moveCenter(screen.center())
         self.setGeometry(g)
         self._build_layout()
-        self._sim_start_time = time.time()
-        self._sim_start_iter = self.sim.get_iteration()
 
         # Re-position modal dialogs if any are open
         if self._any_modal_active():
@@ -1601,6 +1608,9 @@ class MainWindow(QMainWindow):
     def on_k0_changed(self, value: str) -> None:
         self.sim.k0 = float(value)
         self.sim.reset_field()
+        self._csv_rows.clear()
+        self._csv_header = list(CSV_HEADER)
+        self._reset_spectrum_average()
         self._sim_start_time = time.time()
         self._sim_start_iter = self.sim.get_iteration()
         self._update_image(self.sim.get_frame_pixels())
@@ -1611,6 +1621,9 @@ class MainWindow(QMainWindow):
             return
         self.sim.start_spectrum = mode
         self.sim.reset_field()
+        self._csv_rows.clear()
+        self._csv_header = list(CSV_HEADER)
+        self._reset_spectrum_average()
         self._sim_start_time = time.time()
         self._sim_start_iter = self.sim.get_iteration()
         self._update_image(self.sim.get_frame_pixels())
@@ -1628,6 +1641,60 @@ class MainWindow(QMainWindow):
 
     def _movie_frame_interval(self) -> int:
         return max(1, int(self._update_intervall))
+
+    def _reset_spectrum_average(self, since_restart: bool = False) -> None:
+        self._spectrum_average = dns_all.SpectrumAverageState()
+        if since_restart:
+            dns_all.mark_spectrum_average_since_restart(self._spectrum_average, self.sim.state)
+        self._last_spectrum_sample_step = None
+
+    def _sample_spectrum_average(self, force: bool = False) -> None:
+        step = int(self.sim.get_iteration())
+        if not force and self._last_spectrum_sample_step == step:
+            return
+
+        try:
+            ok = dns_all.sample_and_update_spectrum_average(
+                self.sim.state,
+                self._spectrum_average,
+                sim_time=float(self.sim.get_time()),
+                step=step,
+            )
+        except Exception as exc:
+            print(f"[SPECTRUM] Failed to sample time average: {exc}")
+            return
+
+        if not ok:
+            print("[SPECTRUM] Failed to update time average: incompatible spectrum sample")
+            return
+        self._last_spectrum_sample_step = step
+
+    def _save_timeaverage_energy_spectrum(self, folder_path: str, meta_row) -> None:
+        self._sample_spectrum_average(force=True)
+
+        csv_path = os.path.join(folder_path, "energy_spectrum.csv")
+        try:
+            if self._spectrum_average.initialized and self._spectrum_average.has_previous:
+                dns_all.save_spectrum_average_csv(
+                    self._spectrum_average,
+                    csv_path,
+                    meta_header=CSV_HEADER,
+                    meta_row=meta_row,
+                )
+                from palinstrophy.timeaverage_spectrum import save_timeaverage_energy_spectrum_pngs
+
+                out_paths = save_timeaverage_energy_spectrum_pngs(folder_path)
+                for out_path in out_paths:
+                    print(f"[SAVE] Wrote {out_path}")
+            else:
+                dns_all.save_energy_spectrum_uv_csv(
+                    self.sim.state,
+                    csv_path,
+                    meta_header=CSV_HEADER,
+                    meta_row=meta_row,
+                )
+        except Exception as exc:
+            print(f"[SPECTRUM] Failed to save time-averaged energy spectrum: {exc}")
 
     # ------------------------------------------------------------------
     def _init_movie_capture(self) -> None:
@@ -1711,6 +1778,9 @@ class MainWindow(QMainWindow):
         if self.sim.get_iteration() >= self.sim.max_steps:
             if self.auto_reset_checkbox.isChecked():
                 self.sim.reset_field()
+                self._csv_rows.clear()
+                self._csv_header = list(CSV_HEADER)
+                self._reset_spectrum_average()
                 self._sim_start_time = time.time()
                 self._sim_start_iter = self.sim.get_iteration()
             else:
@@ -1891,6 +1961,7 @@ class MainWindow(QMainWindow):
             row[CSV_TAU_L_INDEX],
         ))
         self._csv_rows.append(row)
+        self._sample_spectrum_average()
 
         k = float(DISPLAY_NORM_K_STD)
         lo = self.mu - k * self.sig
