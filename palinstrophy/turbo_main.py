@@ -1202,6 +1202,7 @@ class MainWindow(QMainWindow):
         was_running = self.timer.isActive()
         if was_running:
             self.timer.stop()
+            self._update_run_buttons()
 
         desktop = QStandardPaths.writableLocation(
             QStandardPaths.StandardLocation.DesktopLocation
@@ -1220,9 +1221,12 @@ class MainWindow(QMainWindow):
         else:
             if was_running:
                 self.timer.start()
+                self._update_run_buttons()
             return
 
         self._load_restart_netcdf(folder_path)
+        self.timer.stop()
+        self._update_run_buttons()
 
     def _load_restart_netcdf(self, folder_path: str):
         t_wall_start = time.time()
