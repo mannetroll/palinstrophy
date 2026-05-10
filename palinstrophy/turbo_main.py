@@ -1053,7 +1053,6 @@ class MainWindow(QMainWindow):
             f"τ_L={TAU_L:.4g}\n"
             f"T/τ_L={T_OVER_TAU_L:.4g}\n"
             f"E(J)={E_J:.4g}\n"
-            f"TS={TS}\n"
             f"{self.title_backend}"
         )
         return meta
