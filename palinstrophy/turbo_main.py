@@ -474,8 +474,7 @@ class MainWindow(QMainWindow):
         self.re_edit = QLineEdit()
         self.re_edit.setToolTip("Reynolds Number (Re)")
         self.re_edit.setReadOnly(True)
-        self.re_edit.setFixedWidth(110)
-        self.re_edit.setFixedHeight(26)
+        self.re_edit.setFixedWidth(100)
         self.re_edit.setText(str(self.sim.re))
 
         self.t_over_tl_label = QLabel()
@@ -556,7 +555,6 @@ class MainWindow(QMainWindow):
         self.setStatusBar(self.status)
         mono = QFontDatabase.systemFont(QFontDatabase.SystemFont.FixedFont)
         self.status.setFont(mono)
-        mono.setPointSize(12)
         self.re_edit.setFont(mono)
         self.t_over_tl_label.setFont(mono)
 
@@ -660,7 +658,7 @@ class MainWindow(QMainWindow):
         row1.addWidget(self.spectrum_button)
         row1.addWidget(self.metrics_button)
         row1.addSpacing(2)
-        row1.addWidget(self.re_edit, alignment=Qt.AlignmentFlag.AlignBottom)
+        row1.addWidget(self.re_edit)
         row1.addSpacing(20)
         #row1.addWidget(self.t_over_tl_label)
         row1.addStretch(1)
