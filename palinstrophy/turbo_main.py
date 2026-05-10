@@ -1342,6 +1342,7 @@ class MainWindow(QMainWindow):
         self._reset_spectrum_average(since_restart=True)
         self._sim_start_time = time.time()
         self._sim_start_iter = it
+        self.sim._next_dt_pending = False
         self._update_image(self.sim.get_frame_pixels())
         self._update_status(t, it, None)
 
