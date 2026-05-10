@@ -195,7 +195,7 @@ class DnsSimulator:
         # When loading a saved case (skip_pao=True) the spectral arrays are
         # still all-zero at this point, so step2a/compute_cflm would yield
         # CFLM=0 and a ZeroDivisionError.  The caller will overwrite dt/cn
-        # from the parquet metadata, so we can safely skip this block.
+        # from the restart metadata, so we can safely skip this block.
         if not skip_pao:
             if self.state.backend == "cpu":
                 with spfft.set_workers(self.fft_workers):

@@ -32,6 +32,7 @@ from palinstrophy import turbo_simulator as dns_all
 from palinstrophy.turbo_wrapper import DnsSimulator
 
 FUSION = "Fusion"
+RESTART_FILE = "restart.nc"
 
 
 # Simple helper: build a 256x3 uint8 LUT from color stops in 0..1
@@ -437,7 +438,7 @@ class MainWindow(QMainWindow):
         # Load case button
         self.load_button = QPushButton()
         self.load_button.setIcon(style.standardIcon(QStyle.StandardPixmap.SP_DialogOpenButton))
-        self.load_button.setToolTip("Load case from parquet restart")
+        self.load_button.setToolTip("Load case from NetCDF restart")
         self.load_button.setFixedSize(28, 28)
         self.load_button.setIconSize(QSize(14, 14))
 
@@ -1126,69 +1127,78 @@ class MainWindow(QMainWindow):
         print(f"{N}, {K0}, {Re:.4e}, {CFL}, {VISC:.4e}, {STEPS}, {PALIN}, {SIG}, {TIME:.2e}, {DT:.6e}, {MINUTES:.2f}, {FPS:.1f}, {U:.6g}, {L:.6g}, {TAU_L:.6g}, {T_OVER_TAU_L:.6g}, {E_J:.6e}, {TS}")
         self.write_plot_csv(folder_path)
 
-        # ---- store restart data as parquet files ----
-        self._dump_restart_parquet(folder_path)
+        # ---- store restart data as a NetCDF file ----
+        self._dump_restart_netcdf(folder_path)
 
         print("[SAVE] Completed.")
 
     # ------------------------------------------------------------------
-    #  Restart-data helpers  (parquet)
+    #  Restart-data helpers  (NetCDF)
     # ------------------------------------------------------------------
     @staticmethod
-    def _complex_array_to_table(arr):
-        """Flatten a complex ndarray and return a pyarrow Table with real/imag columns."""
-        import pyarrow as pa
-        flat = (arr.get() if hasattr(arr, 'get') else np.asarray(arr)).ravel()
-        return pa.table({"real": flat.real, "imag": flat.imag})
+    def _complex_array_to_host(arr) -> np.ndarray:
+        host = arr.get() if hasattr(arr, "get") else np.asarray(arr)
+        return np.asarray(host)
 
-    def _dump_restart_parquet(self, folder_path: str):
-        import pyarrow as pa
-        import pyarrow.parquet as pq
+    @staticmethod
+    def _restart_dims(name: str, shape: tuple[int, ...]) -> tuple[str, ...]:
+        if name == "uc":
+            return ("uc_z", "uc_k", "uc_component")
+        if name == "om2":
+            return ("om2_z", "om2_x_half")
+        if name == "fnm1":
+            return ("fnm1_z", "fnm1_x_half")
+        return tuple(f"{name}_dim_{i}" for i in range(len(shape)))
+
+    @classmethod
+    def _write_complex_netcdf(cls, ds, name: str, arr) -> None:
+        host = cls._complex_array_to_host(arr)
+        dims = cls._restart_dims(name, host.shape)
+        for dim, size in zip(dims, host.shape):
+            ds.createDimension(dim, int(size))
+
+        kwargs = {"zlib": True, "complevel": 4, "shuffle": True, "fill_value": False}
+        real = ds.createVariable(f"{name}_real", "f4", dims, **kwargs)
+        imag = ds.createVariable(f"{name}_imag", "f4", dims, **kwargs)
+        real[:] = np.asarray(host.real, dtype=np.float32)
+        imag[:] = np.asarray(host.imag, dtype=np.float32)
+
+    @staticmethod
+    def _read_complex_netcdf(ds, name: str) -> np.ndarray:
+        real = np.asarray(ds.variables[f"{name}_real"][:], dtype=np.float32)
+        imag = np.asarray(ds.variables[f"{name}_imag"][:], dtype=np.float32)
+        return (real + 1j * imag).astype(np.complex64, copy=False)
+
+    def _dump_restart_netcdf(self, folder_path: str):
+        from netCDF4 import Dataset
 
         S = self.sim.state
         dns_all.sync_time_scalars_from_device(S)
 
-        # 1) scalar metadata
-        meta = pa.table({
-            "Nbase": [int(S.Nbase)],
-            "Re": [float(S.Re)],
-            "K0": [float(S.K0)],
-            "start_spectrum": [str(S.start_spectrum)],
-            "visc": [float(S.visc)],
-            "cflnum": [float(S.cflnum)],
-            "seed_init": [int(S.seed_init)],
-            "t": [float(S.t)],
-            "dt": [float(S.dt)],
-            "cn": [float(S.cn)],
-            "cnm1": [float(S.cnm1)],
-            "it": [int(S.it)],
-        })
-        pq.write_table(meta, os.path.join(folder_path, "restart_meta.parquet"), compression="zstd")
+        path = os.path.join(folder_path, RESTART_FILE)
+        with Dataset(path, "w", format="NETCDF4") as ds:
+            ds.setncattr("format_version", 1)
+            ds.setncattr("Nbase", int(S.Nbase))
+            ds.setncattr("Re", float(S.Re))
+            ds.setncattr("K0", float(S.K0))
+            ds.setncattr("start_spectrum", str(S.start_spectrum))
+            ds.setncattr("visc", float(S.visc))
+            ds.setncattr("cflnum", float(S.cflnum))
+            ds.setncattr("seed_init", int(S.seed_init))
+            ds.setncattr("t", float(S.t))
+            ds.setncattr("dt", float(S.dt))
+            ds.setncattr("cn", float(S.cn))
+            ds.setncattr("cnm1", float(S.cnm1))
+            ds.setncattr("it", int(S.it))
 
-        # 2) spectral velocity  uc  (NZ, NK, 3) complex64
-        pq.write_table(self._complex_array_to_table(S.uc),
-                       os.path.join(folder_path, "restart_uc.parquet"), compression="zstd")
+            self._write_complex_netcdf(ds, "uc", S.uc)
+            self._write_complex_netcdf(ds, "om2", S.om2)
+            self._write_complex_netcdf(ds, "fnm1", S.fnm1)
 
-        # 3) vorticity  om2  (NZ, NX_half) complex64
-        pq.write_table(self._complex_array_to_table(S.om2),
-                       os.path.join(folder_path, "restart_om2.parquet"), compression="zstd")
-
-        # 4) nonlinear history  fnm1  (NZ, NX_half) complex64
-        pq.write_table(self._complex_array_to_table(S.fnm1),
-                       os.path.join(folder_path, "restart_fnm1.parquet"), compression="zstd")
-
-        # 5) store array shapes so the loader can reshape
-        shapes = pa.table({
-            "uc_shape": [str(S.uc.shape)],
-            "om2_shape": [str(S.om2.shape)],
-            "fnm1_shape": [str(S.fnm1.shape)],
-        })
-        pq.write_table(shapes, os.path.join(folder_path, "restart_shapes.parquet"), compression="zstd")
-
-        print(f"[SAVE] Restart parquet files written to {folder_path}")
+        print(f"[SAVE] NetCDF restart written to {path}")
 
     # ------------------------------------------------------------------
-    #  Load restart from parquet
+    #  Load restart from NetCDF
     # ------------------------------------------------------------------
     def on_load_clicked(self) -> None:
         was_running = self.timer.isActive()
@@ -1199,7 +1209,7 @@ class MainWindow(QMainWindow):
             QStandardPaths.StandardLocation.DesktopLocation
         )
         dlg = QFileDialog(self)
-        dlg.setWindowTitle("Load case (select folder with restart parquet files)")
+        dlg.setWindowTitle("Load case (select folder with NetCDF restart)")
         dlg.setFileMode(QFileDialog.FileMode.Directory)
         dlg.setOption(QFileDialog.Option.ShowDirsOnly, True)
         dlg.setOption(QFileDialog.Option.DontUseNativeDialog, True)
@@ -1214,54 +1224,36 @@ class MainWindow(QMainWindow):
                 self.timer.start()
             return
 
-        self._load_restart_parquet(folder_path)
+        self._load_restart_netcdf(folder_path)
 
-    def _load_restart_parquet(self, folder_path: str):
+    def _load_restart_netcdf(self, folder_path: str):
         t_wall_start = time.time()
-        import pyarrow.parquet as pq
-        import ast
+        from netCDF4 import Dataset
 
-        meta_path = os.path.join(folder_path, "restart_meta.parquet")
-        if not os.path.isfile(meta_path):
-            print(f"[LOAD] No restart_meta.parquet in {folder_path}")
+        restart_path = os.path.join(folder_path, RESTART_FILE)
+        if not os.path.isfile(restart_path):
+            print(f"[LOAD] No {RESTART_FILE} in {folder_path}")
             return
 
-        # 1) read scalar metadata
-        meta = pq.read_table(meta_path).to_pydict()
-        print(f"[LOAD] Read {meta_path}")
-        N = int(meta["Nbase"][0])
-        Re = float(meta["Re"][0])
-        K0 = float(meta["K0"][0])
-        start_spectrum = cast(dns_all.SPECTRUM, meta["start_spectrum"][0])
-        visc = float(meta["visc"][0])
-        cflnum = float(meta["cflnum"][0])
-        seed_init = int(meta["seed_init"][0])
-        t = float(meta["t"][0])
-        dt = float(meta["dt"][0])
-        cn = float(meta["cn"][0])
-        cnm1 = float(meta["cnm1"][0])
-        it = int(meta["it"][0])
+        with Dataset(restart_path, "r") as ds:
+            ds.set_auto_mask(False)
+            print(f"[LOAD] Read {restart_path}")
+            N = int(ds.getncattr("Nbase"))
+            Re = float(ds.getncattr("Re"))
+            K0 = float(ds.getncattr("K0"))
+            start_spectrum = cast(dns_all.SPECTRUM, str(ds.getncattr("start_spectrum")))
+            visc = float(ds.getncattr("visc"))
+            cflnum = float(ds.getncattr("cflnum"))
+            seed_init = int(ds.getncattr("seed_init"))
+            t = float(ds.getncattr("t"))
+            dt = float(ds.getncattr("dt"))
+            cn = float(ds.getncattr("cn"))
+            cnm1 = float(ds.getncattr("cnm1"))
+            it = int(ds.getncattr("it"))
 
-        # 2) read shapes
-        shapes_path = os.path.join(folder_path, "restart_shapes.parquet")
-        shapes = pq.read_table(shapes_path).to_pydict()
-        print(f"[LOAD] Read {shapes_path}")
-        uc_shape = ast.literal_eval(shapes["uc_shape"][0])
-        om2_shape = ast.literal_eval(shapes["om2_shape"][0])
-        fnm1_shape = ast.literal_eval(shapes["fnm1_shape"][0])
-
-        # 3) read complex arrays
-        def _read_complex(name, shape):
-            path = os.path.join(folder_path, name)
-            tbl = pq.read_table(path).to_pydict()
-            print(f"[LOAD] Read {path}")
-            real = np.array(tbl["real"], dtype=np.float32)
-            imag = np.array(tbl["imag"], dtype=np.float32)
-            return (real + 1j * imag).reshape(shape)
-
-        uc_data = _read_complex("restart_uc.parquet", uc_shape)
-        om2_data = _read_complex("restart_om2.parquet", om2_shape)
-        fnm1_data = _read_complex("restart_fnm1.parquet", fnm1_shape)
+            uc_data = self._read_complex_netcdf(ds, "uc")
+            om2_data = self._read_complex_netcdf(ds, "om2")
+            fnm1_data = self._read_complex_netcdf(ds, "fnm1")
 
         # 4) recreate state with matching N (skip random spectrum – loaded data replaces it)
         self.sim.re = Re

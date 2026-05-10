@@ -1051,7 +1051,7 @@ def dns_pao_host_init(S: DnsState, skip_pao: bool = False):
 
     # When loading a saved case we only need alfa/gamma; skip the
     # expensive random-spectrum generation whose results will be
-    # overwritten by the parquet data anyway.
+    # overwritten by the restart data anyway.
     if skip_pao:
         S.alfa = xp.asarray(alfa, dtype=xp.float32)
         S.gamma = xp.asarray(gamma, dtype=xp.float32)
