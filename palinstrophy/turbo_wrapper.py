@@ -152,6 +152,7 @@ class DnsSimulator:
         self.dt = float(S.dt)
         self.cn = float(S.cn)
         self.iteration += 1
+        S.it = int(self.iteration)
 
     def set_N(self, N: int, skip_pao: bool = False) -> None:
         start = perf_counter()
