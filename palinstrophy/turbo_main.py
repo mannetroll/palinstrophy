@@ -331,6 +331,7 @@ def _setup_shortcuts(self):
     self._sc_u = sc("U", lambda: self.update_combo.setCurrentIndex(
         (self.update_combo.currentIndex() + 1) % self.update_combo.count()
     ))
+    self._sc_a = sc("A", self.visc_adapt_button.click)
 
 
 # Cache for k^2 grids:
@@ -374,6 +375,7 @@ class MainWindow(QMainWindow):
         self._target = 20.0
         self._palin_filt = 0.0
         self._palin_filt_1 = 0.0
+        self._visc_adapt_enabled = True
 
         # --- grain metrics (omega) ---
         self.kmax: Optional[float] = None
@@ -471,7 +473,8 @@ class MainWindow(QMainWindow):
         self.re_edit = QLineEdit()
         self.re_edit.setToolTip("Reynolds Number (Re)")
         self.re_edit.setReadOnly(True)
-        self.re_edit.setFixedWidth(100)
+        self.re_edit.setFixedWidth(110)
+        self.re_edit.setFixedHeight(26)
         self.re_edit.setText(str(self.sim.re))
 
         self.t_over_tl_label = QLabel()
@@ -508,6 +511,12 @@ class MainWindow(QMainWindow):
         self.cfl_combo.addItems(["0.05", "0.1", "0.15", "0.2", "0.25", "0.3", "0.4", "0.5", "0.75", "0.85", "0.95"])
         self.cfl_combo.setCurrentText(str(self.sim.cfl))
 
+        self.visc_adapt_button = QPushButton("ν")
+        self.visc_adapt_button.setCheckable(True)
+        self.visc_adapt_button.setChecked(self._visc_adapt_enabled)
+        self.visc_adapt_button.setToolTip("A: Viscosity adaptation")
+        self.visc_adapt_button.setFixedSize(28, 28)
+
         # Steps selector
         self.steps_combo = QComboBox()
         self.steps_combo.setToolTip("S: Max steps before reset/stop")
@@ -537,6 +546,7 @@ class MainWindow(QMainWindow):
             self.cfl_combo.setStyle(QStyleFactory.create(FUSION))
             self.steps_combo.setStyle(QStyleFactory.create(FUSION))
             self.update_combo.setStyle(QStyleFactory.create(FUSION))
+            self.visc_adapt_button.setStyle(QStyleFactory.create(FUSION))
 
         self._build_layout()
 
@@ -545,6 +555,7 @@ class MainWindow(QMainWindow):
         self.setStatusBar(self.status)
         mono = QFontDatabase.systemFont(QFontDatabase.SystemFont.FixedFont)
         self.status.setFont(mono)
+        mono.setPointSize(12)
         self.re_edit.setFont(mono)
         self.t_over_tl_label.setFont(mono)
 
@@ -562,6 +573,7 @@ class MainWindow(QMainWindow):
         self.load_button.clicked.connect(self.on_load_clicked)  # type: ignore[attr-defined]
         self.spectrum_button.clicked.connect(self.on_spectrum_clicked)  # type: ignore[attr-defined]
         self.metrics_button.clicked.connect(self.on_metrics_clicked)  # type: ignore[attr-defined]
+        self.visc_adapt_button.toggled.connect(self.on_visc_adapt_toggled)  # type: ignore[attr-defined]
         self.variable_combo.currentIndexChanged.connect(self.on_variable_changed)  # type: ignore[attr-defined]
         self.cmap_combo.currentTextChanged.connect(self.on_cmap_changed)  # type: ignore[attr-defined]
         self.n_combo.currentTextChanged.connect(self.on_n_changed)  # type: ignore[attr-defined]
@@ -647,9 +659,9 @@ class MainWindow(QMainWindow):
         row1.addWidget(self.spectrum_button)
         row1.addWidget(self.metrics_button)
         row1.addSpacing(2)
-        row1.addWidget(self.re_edit)
+        row1.addWidget(self.re_edit, alignment=Qt.AlignmentFlag.AlignBottom)
         row1.addSpacing(20)
-        row1.addWidget(self.t_over_tl_label)
+        #row1.addWidget(self.t_over_tl_label)
         row1.addStretch(1)
         main.addLayout(row1)
         if sys.platform == "win32":
@@ -670,6 +682,7 @@ class MainWindow(QMainWindow):
         row2.addWidget(self.auto_reset_checkbox)
         row2.addSpacing(8)
         row2.addWidget(self.start_spectrum_combo)
+        #row2.addWidget(self.visc_adapt_button)
         row2.addStretch(1)
         main.addLayout(row2)
 
@@ -1544,6 +1557,15 @@ class MainWindow(QMainWindow):
             self.current_cmap_name = name
             self._update_image(self.sim.get_frame_pixels())
 
+    def on_visc_adapt_toggled(self, checked: bool) -> None:
+        self._visc_adapt_enabled = bool(checked)
+        if checked:
+            return
+        self._e_int = 0.0
+        self._e_prev = 0.0
+        self._palin_filt = 0.0
+        self._palin_filt_1 = 0.0
+
     def on_n_changed(self, value: str) -> None:
         N = int(value)
         K0 = float(self.sim.state.K0)
@@ -1937,6 +1959,9 @@ class MainWindow(QMainWindow):
         return float(self._palin_filt)
 
     def adapt_visc(self):
+        if not self.visc_adapt_button.isChecked():
+            return
+
         # Match original behavior:
         deadband = 0.001  # relative band: ±0.1%
         max_frac = 0.01  # max fractional change per update: 1%
