@@ -98,7 +98,7 @@ Valid seed values are 1 through 5010.
 
 ## The DNS with SciPy (1024 x 1024)
 
-![SciPy](https://raw.githubusercontent.com/mannetroll/palinstrophy/v0.1.4/N1024.png)
+![SciPy](https://raw.githubusercontent.com/mannetroll/palinstrophy/v0.1.4/images/N1024.png)
 
 ### Full CLI
 
@@ -153,7 +153,7 @@ Or let the backend auto-detect:
 
 ## The DNS with CuPy (8192 x 8192) Dedicated GPU memory 18/24 GB
 
-![CuPy](https://raw.githubusercontent.com/mannetroll/palinstrophy/v0.1.4/N8192.png)
+![CuPy](https://raw.githubusercontent.com/mannetroll/palinstrophy/v0.1.4/images/N8192.png)
 
 
 ## Profiling
@@ -203,7 +203,7 @@ The radially averaged (isotropic) 2D FFT energy spectrum E(k) computed from the 
 The x-axis is the normalized radial wavenumber (k/k_Nyquist), and the y-axis is the shell-summed spectral energy ∑(|û(k)|² + |v̂(k)|²) accumulated within radial wavenumber bins (DC removed and excluded).  
 A dashed reference slope k⁻³ is drawn (anchored at the spectral peak) to compare against the expected 2D enstrophy-cascade inertial-range power-law behavior.
 
-![spectrum](https://raw.githubusercontent.com/mannetroll/palinstrophy/v0.1.4/spectrum.png)
+![spectrum](https://raw.githubusercontent.com/mannetroll/palinstrophy/v0.1.4/images/spectrum.png)
 
 ## FPS Comparison Plot (DNS FPS vs Grid Size and Code)
 
@@ -216,7 +216,7 @@ A dashed reference slope k⁻³ is drawn (anchored at the spectral peak) to comp
 - **NumPy (Python)** (`.py`) — Apple M1 *(single thread)*  
 - **SciPy (Python)** (`.py`) — Apple M1 *(4 workers)*  
 
-![compare](https://raw.githubusercontent.com/mannetroll/palinstrophy/v0.1.4/compare.png)
+![compare](https://raw.githubusercontent.com/mannetroll/palinstrophy/v0.1.4/images/compare.png)
 
 
 ## Parquet Restart
