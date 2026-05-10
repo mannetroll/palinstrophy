@@ -1371,7 +1371,7 @@ _STEP2A_PREPARE_KERNEL = None  # created lazily on first GPU call
 _STEP2A_CROP_KERNEL = None  # created lazily on first GPU call
 _STEP3_COPY_CN_KERNEL = None  # created lazily on first GPU call
 _NEXT_DT_UPDATE_KERNEL = None  # created lazily on first GPU call
-_ENERGY_SPECTRUM_UV_KERNEL = None  # created lazily on first GPU spectrum sample
+_ENERGY_SPECTRUM_OMEGA_KERNEL = None  # created lazily on first GPU spectrum sample
 
 def dns_step2b(S: DnsState) -> None:
     """
@@ -2039,29 +2039,28 @@ def dump_field_as_pgm_full(S: DnsState, comp: int, filename: str) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Energy-spectrum time average (mirrors cuda/mem_cuda.cu)
+# Energy-spectrum time average
 # ---------------------------------------------------------------------------
 
-def _compute_energy_spectrum_uv_bins_gpu(S: DnsState, nbins: int, r_max: float, k_nyq: float) -> SpectrumSample:
-    global _ENERGY_SPECTRUM_UV_KERNEL
+def _compute_energy_spectrum_omega_bins_gpu(S: DnsState, nbins: int, r_max: float, k_nyq: float) -> SpectrumSample:
+    global _ENERGY_SPECTRUM_OMEGA_KERNEL
 
     if _cp is None:
         raise RuntimeError("CuPy backend requested but CuPy is unavailable")
 
-    if _ENERGY_SPECTRUM_UV_KERNEL is None:
-        _ENERGY_SPECTRUM_UV_KERNEL = _cp.RawKernel(r'''
+    if _ENERGY_SPECTRUM_OMEGA_KERNEL is None:
+        _ENERGY_SPECTRUM_OMEGA_KERNEL = _cp.RawKernel(r'''
         extern "C" __global__
-        void turbo_energy_spectrum_uv_bins(const float2* uc_full,
-                                           unsigned long long plane,
-                                           int nk,
-                                           int nz,
-                                           int nx,
-                                           int nbins,
-                                           double r_max,
-                                           double k_nyq,
-                                           double fft_scale2,
-                                           double* esum,
-                                           int* cnt)
+        void turbo_energy_spectrum_omega_bins(const float2* om2,
+                                              unsigned long long plane,
+                                              int nx_half,
+                                              int nz,
+                                              int nbins,
+                                              double r_max,
+                                              double k_nyq,
+                                              double fft_scale2,
+                                              double* esum,
+                                              int* cnt)
         {
             unsigned long long stride =
                 (unsigned long long)blockDim.x * (unsigned long long)gridDim.x;
@@ -2070,24 +2069,22 @@ def _compute_energy_spectrum_uv_bins_gpu(S: DnsState, nbins: int, r_max: float, 
                 + (unsigned long long)threadIdx.x;
 
             while (idx < plane) {
-                int kx = (int)(idx % (unsigned long long)nk);
-                int z = (int)(idx / (unsigned long long)nk);
-                int kz = (z <= nz / 2) ? z : z - nz;
+                int kx = (int)(idx % (unsigned long long)nx_half);
+                int z = (int)(idx / (unsigned long long)nx_half);
+                int kz = (z < nz / 2) ? z : z - nz;
 
-                if (!(kx == 0 && kz == 0)) {
-                    double k2 = (double)kx * (double)kx + (double)kz * (double)kz;
+                double k2 = (double)kx * (double)kx + (double)kz * (double)kz;
+                if (k2 > 0.0) {
                     double r = sqrt(k2) / k_nyq;
                     int bin = (int)floor((r / r_max) * (double)nbins);
                     if (bin < 0) bin = 0;
                     if (bin >= nbins) bin = nbins - 1;
 
-                    float2 u = uc_full[idx];
-                    float2 v = uc_full[plane + idx];
-                    double p = (double)u.x * (double)u.x + (double)u.y * (double)u.y +
-                               (double)v.x * (double)v.x + (double)v.y * (double)v.y;
-                    p *= fft_scale2;
+                    float2 om = om2[idx];
+                    double omega2 = (double)om.x * (double)om.x + (double)om.y * (double)om.y;
+                    double p = (omega2 / k2) * fft_scale2;
 
-                    int weight = (kx > 0 && kx < nx / 2) ? 2 : 1;
+                    int weight = (kx > 0) ? 2 : 1;
                     if (weight == 2) {
                         p *= 2.0;
                     }
@@ -2099,28 +2096,26 @@ def _compute_energy_spectrum_uv_bins_gpu(S: DnsState, nbins: int, r_max: float, 
                 idx += stride;
             }
         }
-        ''', "turbo_energy_spectrum_uv_bins")
+        ''', "turbo_energy_spectrum_omega_bins")
 
-    nk = int(S.NK_full)
-    nz = int(S.NZ_full)
-    nx = int(S.NX_full)
-    plane = int(nk * nz)
+    nx_half = int(S.Nbase) // 2
+    nz = int(S.Nbase)
+    plane = int(nx_half * nz)
 
     d_esum = _cp.zeros((nbins,), dtype=_cp.float64)
     d_cnt = _cp.zeros((nbins,), dtype=_cp.int32)
 
     threads = 256
     blocks = min(65535, max(1, (plane + threads - 1) // threads))
-    fft_scale = float(nx * nz)
-    _ENERGY_SPECTRUM_UV_KERNEL(
+    fft_scale = float(int(S.NX_full) * int(S.NZ_full))
+    _ENERGY_SPECTRUM_OMEGA_KERNEL(
         (blocks,),
         (threads,),
         (
-            S.uc_full,
+            S.om2,
             _np.uint64(plane),
-            _np.int32(nk),
+            _np.int32(nx_half),
             _np.int32(nz),
-            _np.int32(nx),
             _np.int32(nbins),
             _np.float64(r_max),
             _np.float64(k_nyq),
@@ -2139,43 +2134,36 @@ def _compute_energy_spectrum_uv_bins_gpu(S: DnsState, nbins: int, r_max: float, 
     )
 
 
-def _compute_energy_spectrum_uv_bins_cpu(S: DnsState, nbins: int, r_max: float, k_nyq: float) -> SpectrumSample:
-    uc = _np.asarray(S.uc_full)
-    u_hat = uc[0]
-    v_hat = uc[1]
+def _compute_energy_spectrum_omega_bins_cpu(S: DnsState, nbins: int, r_max: float, k_nyq: float) -> SpectrumSample:
+    om2 = _np.asarray(S.om2)
 
-    nk = int(S.NK_full)
-    nz = int(S.NZ_full)
-    nx = int(S.NX_full)
-    fft_scale2 = float(nx * nz) ** 2
+    nz = int(S.Nbase)
+    nx_half = int(S.Nbase) // 2
+    fft_scale2 = float(int(S.NX_full) * int(S.NZ_full)) ** 2
 
     esum = _np.zeros((nbins,), dtype=_np.float64)
     count = _np.zeros((nbins,), dtype=_np.int64)
 
-    kx = _np.arange(nk, dtype=_np.float64)
+    kx = _np.arange(nx_half, dtype=_np.float64)
     kx2 = kx * kx
-    weight = _np.ones((nk,), dtype=_np.float64)
-    if nk > 2:
-        weight[1:nx // 2] = 2.0
+    weight = _np.ones((nx_half,), dtype=_np.float64)
+    if nx_half > 1:
+        weight[1:] = 2.0
 
     for z in range(nz):
-        kz = z if z <= nz // 2 else z - nz
+        kz = z if z < nz // 2 else z - nz
         k2 = kx2 + float(kz * kz)
-        if z == 0:
-            mask = k2 > 0.0
-        else:
-            mask = _np.ones((nk,), dtype=bool)
+        mask = k2 > 0.0
 
         radii = _np.sqrt(k2[mask]) / k_nyq
         bins = _np.floor((radii / r_max) * float(nbins)).astype(_np.int64)
         _np.clip(bins, 0, nbins - 1, out=bins)
 
+        omega = om2[z, mask]
         p = (
-            u_hat[z, mask].real.astype(_np.float64) ** 2
-            + u_hat[z, mask].imag.astype(_np.float64) ** 2
-            + v_hat[z, mask].real.astype(_np.float64) ** 2
-            + v_hat[z, mask].imag.astype(_np.float64) ** 2
-        )
+            omega.real.astype(_np.float64) ** 2
+            + omega.imag.astype(_np.float64) ** 2
+        ) / k2[mask]
         row_weight = weight[mask]
         esum += _np.bincount(bins, weights=p * row_weight * fft_scale2, minlength=nbins)
         count += _np.bincount(bins, weights=row_weight, minlength=nbins).astype(_np.int64)
@@ -2191,25 +2179,28 @@ def _compute_energy_spectrum_uv_bins_cpu(S: DnsState, nbins: int, r_max: float, 
 
 def compute_energy_spectrum_uv_bins(S: DnsState) -> SpectrumSample:
     """
-    Shell-sum the kinetic energy spectrum from S.uc_full[0:2].
+    Shell-sum the kinetic energy spectrum from the compact vorticity spectrum.
 
-    The CUDA command-line path forward-FFTs physical velocity before binning,
-    which multiplies the stored spectral coefficients by NX_full*NZ_full. This
-    helper reads the already-current velocity spectrum and applies that same
-    scale factor without mutating S.uc_full or S.ur_full.
+    For 2D incompressible flow,
+    |u_hat|^2 + |v_hat|^2 = |omega_hat|^2 / |k|^2.  S.om2 is the authoritative
+    compact spectral state after STEP3; S.uc_full[0:2] is FFT workspace and the
+    GPU inverse path may clobber it while producing S.ur_full.
+
+    The saved spectrum is scaled to match a forward FFT of the full physical
+    velocity grid, whose coefficients are NX_full*NZ_full larger than the
+    stored normalized spectral coefficients.
     """
     if S is None:
         raise ValueError("DnsState is required")
 
-    nx = int(S.NX_full)
-    nz = int(S.NZ_full)
-    nbins = max(32, 2 * min(nx, nz))
+    n = int(S.Nbase)
+    nbins = max(32, 2 * n)
     r_max = math.sqrt(2.0)
-    k_nyq = 0.5 * float(min(nx, nz))
+    k_nyq = 0.5 * float(n)
 
     if S.backend == "gpu":
-        return _compute_energy_spectrum_uv_bins_gpu(S, nbins, r_max, k_nyq)
-    return _compute_energy_spectrum_uv_bins_cpu(S, nbins, r_max, k_nyq)
+        return _compute_energy_spectrum_omega_bins_gpu(S, nbins, r_max, k_nyq)
+    return _compute_energy_spectrum_omega_bins_cpu(S, nbins, r_max, k_nyq)
 
 
 def mark_spectrum_average_since_restart(average: SpectrumAverageState, S: DnsState | None) -> None:

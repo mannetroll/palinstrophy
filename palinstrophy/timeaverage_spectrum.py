@@ -293,7 +293,7 @@ def save_timeaverage_energy_spectrum_pngs(
     ax = fig.add_subplot(1, 1, 1)
     ax.loglog(plot_radius, plot_energy, label="time-averaged E(k)")
     ax.set_ylim(bottom=1)
-    ax.set_title("Time-averaged energy spectrum estimate E(k) from u,v (shell sum)")
+    ax.set_title("Time-averaged energy spectrum estimate E(k) from vorticity (shell sum)")
     ax.set_xlabel("normalized radius  k / k_Nyquist")
     ax.set_ylabel("time-averaged shell-sum energy (unnormalized)")
 
