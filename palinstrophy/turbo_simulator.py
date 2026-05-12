@@ -48,6 +48,7 @@ import numpy as _np
 SCIPYTURBO_SEED_ENV = "SCIPYTURBO_SEED"
 PAO_SEED_MIN = 1
 PAO_SEED_MAX = 5010
+TimeStepper = Literal["CNAB2", "LS_IMEX_RK3", "CHECK"]
 
 
 def pao_seed_from_env(default: int | None = None) -> int | None:
@@ -1514,6 +1515,75 @@ def dns_step2b(S: DnsState) -> None:
 # ---------------------------------------------------------------------------
 # STEP3 — vorticity update using om2 & fnm1
 # ---------------------------------------------------------------------------
+
+def _compute_nonlinear_vorticity_term(S: DnsState, out) -> None:
+    xp = S.xp
+    Nbase = int(S.Nbase)
+    NX_half = Nbase // 2
+    NZ = Nbase
+
+    uc_full = S.uc_full
+    uc0_low = uc_full[0, :, :NX_half]
+    uc1_low = uc_full[1, :, :NX_half]
+    uc2_low = uc_full[2, :, :NX_half]
+
+    uc1_th = S.step3_uc1_th
+    uc2_th = S.step3_uc2_th
+    uc3_th = S.step3_uc3_th
+    if S.backend == "cpu":
+        NZ_half = NZ // 2
+        uc1_th[:NZ_half] = uc0_low[:NZ_half]
+        uc1_th[NZ_half:] = uc0_low[NZ:NZ + NZ_half]
+        uc2_th[:NZ_half] = uc1_low[:NZ_half]
+        uc2_th[NZ_half:] = uc1_low[NZ:NZ + NZ_half]
+        uc3_th[:NZ_half] = uc2_low[:NZ_half]
+        uc3_th[NZ_half:] = uc2_low[NZ:NZ + NZ_half]
+    else:
+        xp.take(uc0_low, S.step3_z_spec, axis=0, out=uc1_th)
+        xp.take(uc1_low, S.step3_z_spec, axis=0, out=uc2_th)
+        xp.take(uc2_low, S.step3_z_spec, axis=0, out=uc3_th)
+
+    tmp_c = S.scratch2
+    xp.subtract(uc1_th, uc2_th, out=out)
+    xp.multiply(out, S.step3_GA, out=out)
+    xp.multiply(uc3_th, S.step3_G2mA2, out=tmp_c)
+    xp.add(out, tmp_c, out=out)
+    xp.multiply(out, S.step3_divxz, out=out)
+
+
+def _reconstruct_velocity_from_om2(S: DnsState) -> None:
+    xp = S.xp
+    Nbase = int(S.Nbase)
+    NX_half = Nbase // 2
+    NZ = Nbase
+
+    om2 = S.om2
+    out1 = S.scratch1
+    out2 = S.scratch2
+
+    if NX_half > 1:
+        invK2_sub = S.step3_invK2_sub
+        om2_sub = om2[:, 1:]
+        out1_sub = out1[:, 1:]
+        out2_sub = out2[:, 1:]
+
+        out1_sub[...] = om2_sub
+        xp.multiply(out1_sub, invK2_sub, out=out1_sub)
+        xp.multiply(out1_sub, S.gamma[:, None], out=out1_sub)
+        xp.multiply(out1_sub, xp.complex64(-1.0j), out=out1_sub)
+
+        out2_sub[...] = om2_sub
+        xp.multiply(out2_sub, invK2_sub, out=out2_sub)
+        xp.multiply(out2_sub, S.alfa[1:][None, :], out=out2_sub)
+        xp.multiply(out2_sub, xp.complex64(1.0j), out=out2_sub)
+
+    out1[:, 0] = xp.complex64(-1.0j) * om2[:, 0] * S.step3_inv_gamma0
+    out2[:, 0] = xp.complex64(0.0 + 0.0j)
+
+    S.uc_full[0, :NZ, :NX_half] = out1
+    S.uc_full[1, :NZ, :NX_half] = out2
+
+
 def dns_step3(S: DnsState, fuse: bool = True) -> None:
     xp = S.xp
     global _STEP3_FUSED_KERNEL
@@ -1657,16 +1727,6 @@ def dns_step3(S: DnsState, fuse: bool = True) -> None:
         _copy_cn_to_cnm1_device(S)
         return
 
-    om2 = S.om2
-    fnm1 = S.fnm1
-    alfa = S.alfa
-    gamma = S.gamma
-    uc_full = S.uc_full
-
-    Nbase = int(S.Nbase)
-    NX_half = Nbase // 2
-    NZ = Nbase
-
     visc = xp.float32(S.visc)
     if S.backend == "gpu" and S.time_scalars is not None:
         dt = S.time_scalars[0]
@@ -1675,39 +1735,11 @@ def dns_step3(S: DnsState, fuse: bool = True) -> None:
         dt = xp.float32(S.dt)
         cnm1 = xp.float32(S.cnm1)
 
-    z_spec = S.step3_z_spec
-    divxz = S.step3_divxz
-    GA = S.step3_GA
-    G2mA2 = S.step3_G2mA2
     K2 = S.step3_K2
-
-    uc0_low = uc_full[0, :, :NX_half]
-    uc1_low = uc_full[1, :, :NX_half]
-    uc2_low = uc_full[2, :, :NX_half]
-
-    uc1_th = S.step3_uc1_th
-    uc2_th = S.step3_uc2_th
-    uc3_th = S.step3_uc3_th
-    if S.backend == "cpu":
-        NZ_half = NZ // 2
-        uc1_th[:NZ_half] = uc0_low[:NZ_half]
-        uc1_th[NZ_half:] = uc0_low[NZ:NZ + NZ_half]
-        uc2_th[:NZ_half] = uc1_low[:NZ_half]
-        uc2_th[NZ_half:] = uc1_low[NZ:NZ + NZ_half]
-        uc3_th[:NZ_half] = uc2_low[:NZ_half]
-        uc3_th[NZ_half:] = uc2_low[NZ:NZ + NZ_half]
-    else:
-        xp.take(uc0_low, z_spec, axis=0, out=uc1_th)
-        xp.take(uc1_low, z_spec, axis=0, out=uc2_th)
-        xp.take(uc2_low, z_spec, axis=0, out=uc3_th)
 
     tmp_FN = S.scratch1
     tmp_c = S.scratch2
-    xp.subtract(uc1_th, uc2_th, out=tmp_FN)
-    xp.multiply(tmp_FN, GA, out=tmp_FN)
-    xp.multiply(uc3_th, G2mA2, out=tmp_c)
-    xp.add(tmp_FN, tmp_c, out=tmp_FN)
-    xp.multiply(tmp_FN, divxz, out=tmp_FN)
+    _compute_nonlinear_vorticity_term(S, tmp_FN)
 
     VT = xp.float32(0.5) * visc * dt
     ARG = S.step3_ARG
@@ -1719,48 +1751,59 @@ def dns_step3(S: DnsState, fuse: bool = True) -> None:
     c3 = -xp.float32(0.5) * dt * cnm1
 
     NUM = S.step3_NUM
-    xp.multiply(om2, ARG, out=tmp_c)
-    xp.subtract(om2, tmp_c, out=NUM)
+    xp.multiply(S.om2, ARG, out=tmp_c)
+    xp.subtract(S.om2, tmp_c, out=NUM)
 
     xp.multiply(tmp_FN, c2, out=tmp_c)
     xp.add(NUM, tmp_c, out=NUM)
-    xp.multiply(fnm1, c3, out=tmp_c)
+    xp.multiply(S.fnm1, c3, out=tmp_c)
     xp.add(NUM, tmp_c, out=NUM)
 
-    xp.divide(NUM, DEN, out=om2)
+    xp.divide(NUM, DEN, out=S.om2)
 
-    fnm1[...] = tmp_FN
-
-    out1 = S.scratch1
-    out2 = S.scratch2
-
-    if NX_half > 1:
-        invK2_sub = S.step3_invK2_sub
-        om2_sub = om2[:, 1:]
-        out1_sub = out1[:, 1:]
-        out2_sub = out2[:, 1:]
-
-        out1_sub[...] = om2_sub
-        xp.multiply(out1_sub, invK2_sub, out=out1_sub)
-        xp.multiply(out1_sub, gamma[:, None], out=out1_sub)
-        xp.multiply(out1_sub, xp.complex64(-1.0j), out=out1_sub)
-
-        out2_sub[...] = om2_sub
-        xp.multiply(out2_sub, invK2_sub, out=out2_sub)
-        xp.multiply(out2_sub, alfa[1:][None, :], out=out2_sub)
-        xp.multiply(out2_sub, xp.complex64(1.0j), out=out2_sub)
-
-    # GPU-optimized ix=0 branch: no fancy indexing gather/scatter
-    out1[:, 0] = xp.complex64(-1.0j) * om2[:, 0] * S.step3_inv_gamma0
-    out2[:, 0] = xp.complex64(0.0 + 0.0j)
-
-    uc_full[0, :NZ, :NX_half] = out1
-    uc_full[1, :NZ, :NX_half] = out2
+    S.fnm1[...] = tmp_FN
+    _reconstruct_velocity_from_om2(S)
 
     if S.backend == "gpu" and S.time_scalars is not None:
         _copy_cn_to_cnm1_device(S)
     else:
         S.cnm1 = float(S.cn)
+
+
+def dns_step_ls_imex_rk3(S: DnsState) -> None:
+    xp = S.xp
+    dt = xp.float32(S.dt)
+    visc = xp.float32(S.visc)
+    K2 = S.step3_K2
+    fn = S.scratch1
+    tmp = S.scratch2
+    den = S.step3_DEN
+    num = S.step3_NUM
+
+    alpha = (xp.float32(8.0 / 15.0), xp.float32(5.0 / 12.0), xp.float32(3.0 / 4.0))
+    beta = (xp.float32(0.0), xp.float32(-17.0 / 60.0), xp.float32(-5.0 / 12.0))
+
+    for stage in range(3):
+        dns_step2b(S)
+        _compute_nonlinear_vorticity_term(S, fn)
+
+        xp.multiply(K2, beta[stage] * dt * visc, out=tmp)
+        xp.subtract(xp.float32(1.0), tmp, out=tmp)
+        xp.multiply(S.om2, tmp, out=num)
+
+        xp.multiply(fn, alpha[stage] * dt, out=tmp)
+        xp.add(num, tmp, out=num)
+        xp.multiply(S.fnm1, beta[stage] * dt, out=tmp)
+        xp.add(num, tmp, out=num)
+
+        xp.multiply(K2, alpha[stage] * dt * visc, out=den)
+        xp.add(den, xp.float32(1.0), out=den)
+        xp.divide(num, den, out=S.om2)
+
+        S.fnm1[...] = fn
+
+        _reconstruct_velocity_from_om2(S)
+        dns_step2a(S)
 
 
 # ===============================================================
@@ -2570,7 +2613,12 @@ def run_dns(
     backend: Literal["cpu", "gpu", "auto"] = "auto",
     start_spectrum: SPECTRUM = "KM3",
     UPDATE: int = 100,
-) -> None:
+    method: TimeStepper = "CNAB2",
+) -> DnsState | None:
+    if method == "CHECK":
+        compare_time_steppers(N, Re, K0, STEPS, CFL, backend, start_spectrum, UPDATE)
+        return None
+
     print("--- RUN DNS ---")
     print(f" N   = {N}")
     print(f" Re  = {Re}")
@@ -2579,6 +2627,7 @@ def run_dns(
     print(f" CFL  = {CFL}")
     print(f" Update = {UPDATE}")
     print(f" Start spectrum = {start_spectrum}")
+    print(f" Method = {method}")
     print(f" requested = {backend}")
 
     seed = pao_seed_from_env(1)
@@ -2645,9 +2694,14 @@ def run_dns(
         for it in range(1, STEPS + 1):
             S.it = it
             dt_old = S.dt
-            dns_step2b(S)
-            dns_step3(S)
-            dns_step2a(S)
+            if method == "LS_IMEX_RK3":
+                dns_step_ls_imex_rk3(S)
+            elif method == "CNAB2":
+                dns_step2b(S)
+                dns_step3(S)
+                dns_step2a(S)
+            else:
+                raise ValueError(f"unknown time stepper: {method}")
             if (it % UPDATE) == 0 or it == 1 or it == STEPS:
                 CFLM = next_dt(S, sync_host=True)
                 if CFLM is None:
@@ -2665,6 +2719,51 @@ def run_dns(
         print(f" Elapsed CPU time for {STEPS} steps (s) = {elap:.8g}")
         print(f" Final T={S.t:.8g}  CN={S.cn:.8g}  DT={S.dt:.8g}")
         print(f" FPS = {fps:.8g}")
+        return S
+
+
+def _as_numpy_field(field) -> _np.ndarray:
+    if hasattr(field, "get"):
+        return _np.asarray(field.get())
+    return _np.asarray(field)
+
+
+def _relative_errors(reference, candidate) -> tuple[float, float]:
+    ref = _as_numpy_field(reference).astype(_np.complex128, copy=False)
+    cand = _as_numpy_field(candidate).astype(_np.complex128, copy=False)
+    diff = cand - ref
+    l2 = float(_np.linalg.norm(diff.ravel()) / max(_np.linalg.norm(ref.ravel()), 1.0e-30))
+    linf = float(_np.max(_np.abs(diff)) / max(float(_np.max(_np.abs(ref))), 1.0e-30))
+    return l2, linf
+
+
+def compare_time_steppers(
+    N: int,
+    Re: float,
+    K0: float,
+    STEPS: int,
+    CFL: float,
+    backend: Literal["cpu", "gpu", "auto"],
+    start_spectrum: SPECTRUM,
+    UPDATE: int,
+) -> None:
+    print("--- CHECK TIME STEPPERS ---")
+    print(" Compare CNAB2 and LS_IMEX_RK3 from the same PAO seed and report final-field errors.")
+    cnab2 = run_dns(N, Re, K0, STEPS, CFL, backend, start_spectrum, UPDATE, "CNAB2")
+    rk3 = run_dns(N, Re, K0, STEPS, CFL, backend, start_spectrum, UPDATE, "LS_IMEX_RK3")
+    if cnab2 is None or rk3 is None:
+        return
+
+    om_l2, om_linf = _relative_errors(cnab2.om2, rk3.om2)
+    u_l2, u_linf = _relative_errors(cnab2.ur_full[0:2], rk3.ur_full[0:2])
+    e0, _, tau0 = cnab2.flow_eddy_metrics()
+    e1, _, tau1 = rk3.flow_eddy_metrics()
+
+    print("--- CHECK RESULT ---")
+    print(f" OM2 relative L2={om_l2:.6e} Linf={om_linf:.6e}")
+    print(f" U   relative L2={u_l2:.6e} Linf={u_linf:.6e}")
+    print(f" Energy CNAB2={float(e0):.8e} LS_IMEX_RK3={float(e1):.8e} diff={abs(float(e1) - float(e0)):.6e}")
+    print(f" Tau_L  CNAB2={float(tau0):.8e} LS_IMEX_RK3={float(tau1):.8e} diff={abs(float(tau1) - float(tau0)):.6e}")
 
 def main():
     args = sys.argv[1:]
@@ -2677,8 +2776,9 @@ def main():
     BACK = cast(Literal["cpu", "gpu", "auto"], args[5].lower()) if len(args) > 5 else "auto"
     UPDATE = int(float(args[6])) if len(args) > 6 else 100
     START_SPECTRUM = cast(SPECTRUM, args[7].upper()) if len(args) > 7 else "KM3"
+    METHOD = cast(TimeStepper, args[8].upper()) if len(args) > 8 else "CNAB2"
 
-    run_dns(N=N, Re=Re, K0=K0, STEPS=STEPS, CFL=CFL, backend=BACK, start_spectrum=START_SPECTRUM, UPDATE=UPDATE)
+    run_dns(N=N, Re=Re, K0=K0, STEPS=STEPS, CFL=CFL, backend=BACK, start_spectrum=START_SPECTRUM, UPDATE=UPDATE, method=METHOD)
 
 
 if __name__ == "__main__":

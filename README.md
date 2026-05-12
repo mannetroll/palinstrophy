@@ -120,7 +120,7 @@ For example, to run KM3 and quit after 100 iterations:
 
 ### Solver CLI
 
-    $ uv run sim N Re K0 STEPS CFL BACKEND UPDATE [SPECTRUM]
+    $ uv run sim N Re K0 STEPS CFL BACKEND UPDATE [SPECTRUM [METHOD]]
 
 Where:
 
@@ -132,6 +132,7 @@ Where:
 - BACKEND — "cpu", "gpu", or "auto"
 - UPDATE  — print/update cadence in DNS steps
 - SPECTRUM — "KM3" or "PAO" (optional, defaults to "KM3")
+- METHOD  — "CNAB2", "LS_IMEX_RK3", or "CHECK" (optional, defaults to "CNAB2")
 
 Examples:
 
@@ -143,6 +144,21 @@ Examples:
 
     # CPU run with PAO and status output every 10 steps
     $ uv run sim 256 10000 10 1001 0.75 cpu 10 PAO
+
+    # CPU run with the default CNAB2 time stepper
+    $ uv run sim 256 10000 10 1001 0.1 cpu 100 KM3 CNAB2
+
+    # CPU run with the low-storage IMEX RK3 time stepper
+    $ uv run sim 256 10000 10 1001 0.1 cpu 100 KM3 LS_IMEX_RK3
+
+    # Compare CNAB2 and LS_IMEX_RK3 final fields from the same initial condition
+    $ uv run sim 128 10000 10 200 0.05 cpu 50 KM3 CHECK
+
+`CHECK` runs CNAB2 and LS_IMEX_RK3 from the same PAO seed, then reports
+relative L2/Linf differences for the final spectral vorticity and velocity
+fields plus energy and eddy-turnover-time differences. Use a small CFL when
+checking method agreement; the methods are not bitwise identical, but the
+field differences should shrink as the timestep is reduced.
 
     # Auto-select backend (GPU if CuPy + CUDA are available)
     $ uv run sim 256 10000 10 1001 0.75 auto 100 KM3
