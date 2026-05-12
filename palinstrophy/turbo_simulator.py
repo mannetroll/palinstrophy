@@ -2569,6 +2569,7 @@ def run_dns(
     CFL: float = 0.75,
     backend: Literal["cpu", "gpu", "auto"] = "auto",
     start_spectrum: SPECTRUM = "KM3",
+    UPDATE: int = 100,
 ) -> None:
     print("--- RUN DNS ---")
     print(f" N   = {N}")
@@ -2576,6 +2577,7 @@ def run_dns(
     print(f" K0  = {K0}")
     print(f" Steps = {STEPS}")
     print(f" CFL  = {CFL}")
+    print(f" Update = {UPDATE}")
     print(f" Start spectrum = {start_spectrum}")
     print(f" requested = {backend}")
 
@@ -2646,7 +2648,7 @@ def run_dns(
             dns_step2b(S)
             dns_step3(S)
             dns_step2a(S)
-            if (it % 100) == 0 or it == 1 or it == STEPS:
+            if (it % UPDATE) == 0 or it == 1 or it == STEPS:
                 CFLM = next_dt(S, sync_host=True)
                 if CFLM is None:
                     CFLM = compute_cflm(S)
@@ -2672,12 +2674,11 @@ def main():
     STEPS = int(args[3]) if len(args) > 3 else 1001
     CFL = float(args[4]) if len(args) > 4 else 0.25
 
-    BACK = args[5].lower() if len(args) > 5 else "auto"
-    if BACK not in ("cpu", "gpu", "auto"):
-        BACK = "auto"
-    START_SPECTRUM = cast(SPECTRUM, args[6]) if len(args) > 6 else "KM3"
+    BACK = cast(Literal["cpu", "gpu", "auto"], args[5].lower()) if len(args) > 5 else "auto"
+    UPDATE = int(float(args[6])) if len(args) > 6 else 100
+    START_SPECTRUM = cast(SPECTRUM, args[7].upper()) if len(args) > 7 else "KM3"
 
-    run_dns(N=N, Re=Re, K0=K0, STEPS=STEPS, CFL=CFL, backend=BACK, start_spectrum=START_SPECTRUM)
+    run_dns(N=N, Re=Re, K0=K0, STEPS=STEPS, CFL=CFL, backend=BACK, start_spectrum=START_SPECTRUM, UPDATE=UPDATE)
 
 
 if __name__ == "__main__":

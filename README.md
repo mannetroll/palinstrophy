@@ -118,13 +118,9 @@ For example, to run KM3 and quit after 100 iterations:
 
     $ uv run turbulence 512 15 10000 1E5 0.1 auto 10 KM3 100
 
-## The DNS with SciPy (1024 x 1024)
+### Solver CLI
 
-![SciPy](https://raw.githubusercontent.com/mannetroll/palinstrophy/v0.1.4/images/N1024.png)
-
-### Full CLI
-
-    $ python -m palinstrophy.turbo_simulator N Re K0 STEPS CFL BACKEND [SPECTRUM]
+    $ uv run sim N Re K0 STEPS CFL BACKEND UPDATE [SPECTRUM]
 
 Where:
 
@@ -134,19 +130,27 @@ Where:
 - STEPS   — number of time steps
 - CFL     — target CFL number (e.g. 0.75)
 - BACKEND — "cpu", "gpu", or "auto"
+- UPDATE  — print/update cadence in DNS steps
 - SPECTRUM — "KM3" or "PAO" (optional, defaults to "KM3")
 
 Examples:
 
     # CPU run (SciPy with 4 workers)
-    $ python -m palinstrophy.turbo_simulator 256 10000 10 1001 0.75 cpu KM3
+    $ uv run sim 256 10000 10 1001 0.75 cpu 100 KM3
 
     # CPU run with the original PAO start spectrum
-    $ python -m palinstrophy.turbo_simulator 256 10000 10 1001 0.75 cpu PAO
+    $ uv run sim 256 10000 10 1001 0.75 cpu 100 PAO
+
+    # CPU run with PAO and status output every 10 steps
+    $ uv run sim 256 10000 10 1001 0.75 cpu 10 PAO
 
     # Auto-select backend (GPU if CuPy + CUDA are available)
-    $ python -m palinstrophy.turbo_simulator 256 10000 10 1001 0.75 auto KM3
+    $ uv run sim 256 10000 10 1001 0.75 auto 100 KM3
 
+
+## The DNS with SciPy (1024 x 1024)
+
+![SciPy](https://raw.githubusercontent.com/mannetroll/palinstrophy/v0.1.4/images/N1024.png)
 
 ## Enabling GPU with CuPy (CUDA 13)
 
