@@ -285,6 +285,10 @@ START_SPECTRUM_ITEMS: tuple[tuple[str, dns_all.SPECTRUM], ...] = (
     ("KM3", "KM3"),
     ("PAO", "PAO"),
 )
+METHOD_ITEMS: tuple[tuple[str, dns_all.TimeStepper], ...] = (
+    ("CNAB2", "CNAB2"),
+    ("LS-IMEX-RK3", "LS_IMEX_RK3"),
+)
 # ----------------------------------------------------------------------
 # Display normalization, reduces flicker when the underlying dynamic range
 # changes quickly.
@@ -499,6 +503,15 @@ class MainWindow(QMainWindow):
         if idx >= 0:
             self.start_spectrum_combo.setCurrentIndex(idx)
 
+        # Time-stepper selector
+        self.method_combo = QComboBox()
+        self.method_combo.setToolTip("Time stepper")
+        for label, method in METHOD_ITEMS:
+            self.method_combo.addItem(label, method)
+        idx = self.method_combo.findData(self.sim.method)
+        if idx >= 0:
+            self.method_combo.setCurrentIndex(idx)
+
         # Colormap selector
         self.cmap_combo = QComboBox()
         self.cmap_combo.setToolTip("C: Colormaps")
@@ -510,7 +523,11 @@ class MainWindow(QMainWindow):
         # CFL selector
         self.cfl_combo = QComboBox()
         self.cfl_combo.setToolTip("L: Controlling Δt (CFL)")
-        self.cfl_combo.addItems(["0.05", "0.1", "0.15", "0.2", "0.25", "0.3", "0.4", "0.5", "0.75", "0.85", "0.95"])
+        self.cfl_combo.addItems([
+            "0.05", "0.1", "0.15", "0.2", "0.25", "0.3", "0.4", "0.5",
+            "0.6", "0.64", "0.75", "0.85", "0.95", "1.0", "1.2", "1.5",
+            "1.8", "2.0", "2.1",
+        ])
         self.cfl_combo.setCurrentText(str(self.sim.cfl))
 
         self.visc_adapt_button = QPushButton("ν")
@@ -545,6 +562,7 @@ class MainWindow(QMainWindow):
             self.n_combo.setStyle(QStyleFactory.create(FUSION))
             self.k0_combo.setStyle(QStyleFactory.create(FUSION))
             self.start_spectrum_combo.setStyle(QStyleFactory.create(FUSION))
+            self.method_combo.setStyle(QStyleFactory.create(FUSION))
             self.cfl_combo.setStyle(QStyleFactory.create(FUSION))
             self.steps_combo.setStyle(QStyleFactory.create(FUSION))
             self.update_combo.setStyle(QStyleFactory.create(FUSION))
@@ -580,6 +598,7 @@ class MainWindow(QMainWindow):
         self.n_combo.currentTextChanged.connect(self.on_n_changed)  # type: ignore[attr-defined]
         self.k0_combo.currentTextChanged.connect(self.on_k0_changed)  # type: ignore[attr-defined]
         self.start_spectrum_combo.currentIndexChanged.connect(self.on_start_spectrum_changed)  # type: ignore[attr-defined]
+        self.method_combo.currentIndexChanged.connect(self.on_method_changed)  # type: ignore[attr-defined]
         self.cfl_combo.currentTextChanged.connect(self.on_cfl_changed)  # type: ignore[attr-defined]
         self.steps_combo.currentTextChanged.connect(self.on_steps_changed)  # type: ignore[attr-defined]
         self.update_combo.currentTextChanged.connect(self.on_update_changed)  # type: ignore[attr-defined]
@@ -683,6 +702,7 @@ class MainWindow(QMainWindow):
         row2.addWidget(self.auto_reset_checkbox)
         row2.addSpacing(8)
         row2.addWidget(self.start_spectrum_combo)
+        row2.addWidget(self.method_combo)
         #row2.addWidget(self.visc_adapt_button)
         row2.addStretch(1)
         main.addLayout(row2)
@@ -1629,6 +1649,10 @@ class MainWindow(QMainWindow):
         self._sim_start_iter = self.sim.get_iteration()
         self._update_image(self.sim.get_frame_pixels())
 
+    def on_method_changed(self, index: int = -1) -> None:
+        method = cast(dns_all.TimeStepper, self.method_combo.currentData())
+        self.sim.method = method
+
     def on_cfl_changed(self, value: str) -> None:
         self.sim.cfl = float(value)
         self.sim.state.cflnum = self.sim.cfl
@@ -2168,8 +2192,8 @@ Backend = Literal["cpu", "gpu", "auto"]
 
 
 def _parse_mov_arg(args: list[str]) -> int:
-    if len(args) > 9:
-        raw = args[9]
+    if len(args) > 10:
+        raw = args[10]
         if raw.upper() == "MOV":
             raw = os.environ.get("MOV", "0")
     else:
@@ -2206,14 +2230,15 @@ def main() -> None:
     K0 = float(args[1]) if len(args) > 1 else 5
     Re = float(args[2]) if len(args) > 2 else Re_from_N_K0(N, K0)
     STEPS = args[3] if len(args) > 3 else "50000"
-    CFL = float(args[4]) if len(args) > 4 else 0.3
+    CFL = float(args[4]) if len(args) > 4 else 2.0
 
-    UPDATE = args[6] if len(args) > 6 else "10"
+    UPDATE = args[6] if len(args) > 6 else "2"
     spectrum_str = args[7].upper() if len(args) > 7 else "KM3"
     if spectrum_str not in get_args(dns_all.SPECTRUM):
         spectrum_str = "KM3"
     start_spectrum = cast(dns_all.SPECTRUM, spectrum_str)
     ITERATIONS = int(args[8]) if len(args) > 8 else 10 ** 9
+    METHOD = cast(dns_all.TimeStepper, args[9].upper()) if len(args) > 9 else "LS_IMEX_RK3"
     MOV = _parse_mov_arg(args)
 
     app = QApplication(sys.argv)
@@ -2222,7 +2247,7 @@ def main() -> None:
     icon = QIcon(str(icon_path))
     app.setWindowIcon(icon)
 
-    sim = DnsSimulator(n=N, re=Re, k0=K0, cfl=CFL, backend=backend, start_spectrum=start_spectrum)
+    sim = DnsSimulator(n=N, re=Re, k0=K0, cfl=CFL, backend=backend, start_spectrum=start_spectrum, method=METHOD)
     sim.step(1)
     window = MainWindow(sim, STEPS, UPDATE, ITERATIONS, MOV)
     screen = app.primaryScreen().availableGeometry()

@@ -35,9 +35,10 @@ class DnsSimulator:
         n: int = 512,
         re: float = 1000.0,
         k0: float = 15.0,
-        cfl: float = 0.25,
+        cfl: float = 2.0,
         backend: Literal["cpu", "gpu", "auto"] = "auto",
         start_spectrum: dns_all.SPECTRUM = "KM3",
+        method: dns_all.TimeStepper = "LS_IMEX_RK3",
     ):
         self.N = int(n)
         self.m = 3 * self.N
@@ -45,6 +46,7 @@ class DnsSimulator:
         self.k0 = float(k0)
         self.cfl = float(cfl)
         self.start_spectrum = start_spectrum
+        self.method = method
         self.seed = dns_all.pao_seed_from_env(
             1 + (int.from_bytes(os.urandom(8), "little") % dns_all.PAO_SEED_MAX)
         )
@@ -132,13 +134,23 @@ class DnsSimulator:
 
         if S.backend == "cpu":
             with spfft.set_workers(self.fft_workers):
+                if self.method == "LS_IMEX_RK3":
+                    dns_all.dns_step_ls_imex_rk3(S)
+                elif self.method == "CNAB2":
+                    dns_all.dns_step2b(S)
+                    dns_all.dns_step3(S)
+                    dns_all.dns_step2a(S)
+                else:
+                    raise ValueError(f"unknown time stepper: {self.method}")
+        else:
+            if self.method == "LS_IMEX_RK3":
+                dns_all.dns_step_ls_imex_rk3(S)
+            elif self.method == "CNAB2":
                 dns_all.dns_step2b(S)
                 dns_all.dns_step3(S)
                 dns_all.dns_step2a(S)
-        else:
-            dns_all.dns_step2b(S)
-            dns_all.dns_step3(S)
-            dns_all.dns_step2a(S)
+            else:
+                raise ValueError(f"unknown time stepper: {self.method}")
 
         # Call NEXTDT every mod_next_dt iterations.
         #

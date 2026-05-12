@@ -100,7 +100,7 @@ Valid seed values are 1 through 5010.
 
 ### GUI CLI
 
-    $ uv run turbulence N K0 Re STEPS CFL BACKEND UPDATE [SPECTRUM [ITERATIONS]]
+    $ uv run turbulence N K0 Re STEPS CFL BACKEND UPDATE [SPECTRUM [ITERATIONS [METHOD [MOV]]]]
 
 Where:
 
@@ -108,15 +108,21 @@ Where:
 - K0         — peak wavenumber of the energy spectrum
 - Re         — Reynolds number (e.g. 10000)
 - STEPS      — max steps before reset/stop
-- CFL        — target CFL number (e.g. 0.1)
+- CFL        — target CFL number (defaults to 2.0)
 - BACKEND    — "cpu", "gpu", or "auto"
-- UPDATE     — DNS steps per GUI timer update
+- UPDATE     — DNS steps per GUI timer update (defaults to 5)
 - SPECTRUM   — "KM3" or "PAO" (optional, defaults to "KM3")
 - ITERATIONS — total iterations before the GUI quits; if supplied, put SPECTRUM before it
+- METHOD     — "CNAB2" or "LS_IMEX_RK3" (optional, defaults to "LS_IMEX_RK3")
+- MOV        — 1 to save movie frames, or "MOV" to read the MOV environment variable
 
 For example, to run KM3 and quit after 100 iterations:
 
     $ uv run turbulence 512 15 10000 1E5 0.1 auto 10 KM3 100
+
+To use LS-IMEX-RK3 and enable movie frames:
+
+    $ uv run turbulence 512 15 10000 1E5 0.1 auto 10 KM3 100 LS_IMEX_RK3 1
 
 ### Solver CLI
 
