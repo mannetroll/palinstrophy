@@ -1368,6 +1368,7 @@ _STEP2B_MUL3_KERNEL = None  # fallback, created lazily on first GPU call
 _STEP2B_BUILD_UIUJ_KERNEL = None  # created lazily on first GPU call
 _STEP2B_ZERO_MIDDLE_KERNEL = None  # created lazily on first GPU call
 _STEP3_FUSED_KERNEL = None  # created lazily on first GPU call
+_LS_IMEX_RK3_STAGE_KERNEL = None  # created lazily on first GPU LS-IMEX-RK3 call
 _STEP2A_PREPARE_KERNEL = None  # created lazily on first GPU call
 _STEP2A_CROP_KERNEL = None  # created lazily on first GPU call
 _STEP3_COPY_CN_KERNEL = None  # created lazily on first GPU call
@@ -1770,8 +1771,144 @@ def dns_step3(S: DnsState, fuse: bool = True) -> None:
         S.cnm1 = float(S.cn)
 
 
+def _dns_step_ls_imex_rk3_stage_gpu(S: DnsState, alpha: _np.float32, beta: _np.float32) -> None:
+    global _LS_IMEX_RK3_STAGE_KERNEL
+
+    if _LS_IMEX_RK3_STAGE_KERNEL is None:
+        _LS_IMEX_RK3_STAGE_KERNEL = _cp.RawKernel(r'''
+        extern "C" __global__
+        void turbo_ls_imex_rk3_stage(float2* om2,
+                                     float2* fnm1,
+                                     float2* uc_full,
+                                     const float* time_scalars,
+                                     int NX_half,
+                                     int NZ,
+                                     int NZ_full,
+                                     int NK_full,
+                                     float divxz,
+                                     float visc,
+                                     float alpha,
+                                     float beta)
+        {
+            int k = (int)(blockIdx.x * blockDim.x + threadIdx.x);
+            int z = (int)(blockIdx.y * blockDim.y + threadIdx.y);
+            if (k >= NX_half || z >= NZ) return;
+
+            int idx = z * NX_half + k;
+            float2 om_old = om2[idx];
+            float2 fn_old = fnm1[idx];
+
+            float ax = (float)k;
+            float gz = (z < (NZ / 2)) ? (float)z : (float)(z - NZ);
+            float A2 = ax * ax;
+            float G2 = gz * gz;
+            float K2 = A2 + G2;
+            float GA = gz * ax;
+            float G2_minus_A2 = G2 - A2;
+
+            int z_spec = ((z + 1) <= (NZ / 2)) ? z : (z + NZ / 2);
+
+            size_t idx_uc1_in = (size_t)k + (size_t)NK_full
+                               * ((size_t)z_spec + (size_t)NZ_full * 0u);
+            size_t idx_uc2_in = (size_t)k + (size_t)NK_full
+                               * ((size_t)z_spec + (size_t)NZ_full * 1u);
+            size_t idx_uc3_in = (size_t)k + (size_t)NK_full
+                               * ((size_t)z_spec + (size_t)NZ_full * 2u);
+
+            float2 uc1 = uc_full[idx_uc1_in];
+            float2 uc2 = uc_full[idx_uc2_in];
+            float2 uc3 = uc_full[idx_uc3_in];
+
+            float2 fn;
+            fn.x = (GA * (uc1.x - uc2.x) + G2_minus_A2 * uc3.x) * divxz;
+            fn.y = (GA * (uc1.y - uc2.y) + G2_minus_A2 * uc3.y) * divxz;
+
+            float dt = time_scalars[0];
+            float rhs_om = 1.0f - K2 * beta * dt * visc;
+            float rhs_fn = alpha * dt;
+            float rhs_old_fn = beta * dt;
+            float den = 1.0f + K2 * alpha * dt * visc;
+
+            float2 om_new;
+            om_new.x = (rhs_om * om_old.x + rhs_fn * fn.x + rhs_old_fn * fn_old.x) / den;
+            om_new.y = (rhs_om * om_old.y + rhs_fn * fn.y + rhs_old_fn * fn_old.y) / den;
+
+            om2[idx] = om_new;
+            fnm1[idx] = fn;
+
+            float2 out1;
+            float2 out2;
+            out1.x = 0.0f;
+            out1.y = 0.0f;
+            out2.x = 0.0f;
+            out2.y = 0.0f;
+
+            if (k >= 1) {
+                float invK2 = 1.0f / (K2 + 1.0e-30f);
+                float vx = om_new.x * invK2;
+                float vy = om_new.y * invK2;
+
+                out1.x = gz * vy;
+                out1.y = -gz * vx;
+                out2.x = -ax * vy;
+                out2.y = ax * vx;
+            } else {
+                float invG = ((z + 1) >= 2 && (gz > 0.0f || gz < 0.0f)) ? (1.0f / gz) : 0.0f;
+                out1.x = om_new.y * invG;
+                out1.y = -om_new.x * invG;
+            }
+
+            size_t idx_uc1_out = (size_t)k + (size_t)NK_full
+                                * ((size_t)z + (size_t)NZ_full * 0u);
+            size_t idx_uc2_out = (size_t)k + (size_t)NK_full
+                                * ((size_t)z + (size_t)NZ_full * 1u);
+            uc_full[idx_uc1_out] = out1;
+            uc_full[idx_uc2_out] = out2;
+        }
+        ''', "turbo_ls_imex_rk3_stage")
+
+    Nbase = int(S.Nbase)
+    NX_half = Nbase // 2
+    NZ = Nbase
+    NK_full = int(S.NK_full)
+    NZ_full = int(S.NZ_full)
+
+    block = (64, 4)
+    grid = ((NX_half + block[0] - 1) // block[0],
+            (NZ + block[1] - 1) // block[1])
+
+    _LS_IMEX_RK3_STAGE_KERNEL(
+        grid,
+        block,
+        (
+            S.om2,
+            S.fnm1,
+            S.uc_full,
+            S.time_scalars,
+            _np.int32(NX_half),
+            _np.int32(NZ),
+            _np.int32(NZ_full),
+            _np.int32(NK_full),
+            _np.float32(S.step3_divxz),
+            _np.float32(S.visc),
+            _np.float32(alpha),
+            _np.float32(beta),
+        ),
+    )
+
+
 def dns_step_ls_imex_rk3(S: DnsState) -> None:
     xp = S.xp
+    alpha_vals = (_np.float32(8.0 / 15.0), _np.float32(5.0 / 12.0), _np.float32(3.0 / 4.0))
+    beta_vals = (_np.float32(0.0), _np.float32(-17.0 / 60.0), _np.float32(-5.0 / 12.0))
+
+    if S.backend == "gpu" and _cp is not None and S.time_scalars is not None:
+        for stage in range(3):
+            dns_step2b(S)
+            _dns_step_ls_imex_rk3_stage_gpu(S, alpha_vals[stage], beta_vals[stage])
+            dns_step2a(S)
+        return
+
     dt = xp.float32(S.dt)
     visc = xp.float32(S.visc)
     K2 = S.step3_K2
@@ -1780,8 +1917,8 @@ def dns_step_ls_imex_rk3(S: DnsState) -> None:
     den = S.step3_DEN
     num = S.step3_NUM
 
-    alpha = (xp.float32(8.0 / 15.0), xp.float32(5.0 / 12.0), xp.float32(3.0 / 4.0))
-    beta = (xp.float32(0.0), xp.float32(-17.0 / 60.0), xp.float32(-5.0 / 12.0))
+    alpha = tuple(xp.float32(v) for v in alpha_vals)
+    beta = tuple(xp.float32(v) for v in beta_vals)
 
     for stage in range(3):
         dns_step2b(S)
