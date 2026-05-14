@@ -432,6 +432,7 @@ def _setup_shortcuts(self):
         (self.update_combo.currentIndex() + 1) % self.update_combo.count()
     ))
     self._sc_a = sc("A", self.visc_adapt_button.click)
+    self._sc_quit = sc("Ctrl+Q", self.close)
 
 
 # Cache for k^2 grids:
