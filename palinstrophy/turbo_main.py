@@ -47,26 +47,27 @@ QLabel {
 
 QStatusBar {
     background-color: #050505;
-    color: #ff9a2e;
+    color: #aaa;
+    border-top: 1px solid #3a3a3a;
 }
 
 QLineEdit, QComboBox {
     background-color: #121212;
-    color: #e3e3e3;
+    color: #bbb;
     border-color: #2a2a2a;
-    selection-background-color: #ff7a1a;
-    selection-color: #050505;
+    selection-background-color: #3a3a3a;
+    selection-color: #aaa;
 }
 
 QLineEdit:read-only {
-    color: #ffb15a;
+    color: #bbb;
 }
 
 QComboBox QAbstractItemView {
     background-color: #101010;
     color: #e3e3e3;
-    selection-background-color: #ff7a1a;
-    selection-color: #050505;
+    selection-background-color: #3a3a3a;
+    selection-color: #bbb;
 }
 
 QPushButton {
@@ -120,9 +121,9 @@ def _apply_gui_colors(app: QApplication) -> None:
     palette.setColor(QPalette.ColorRole.Text, QColor("#e3e3e3"))
     palette.setColor(QPalette.ColorRole.Button, QColor("#121212"))
     palette.setColor(QPalette.ColorRole.ButtonText, QColor("#e3e3e3"))
-    palette.setColor(QPalette.ColorRole.BrightText, QColor("#ff9a2e"))
-    palette.setColor(QPalette.ColorRole.Highlight, QColor("#ff7a1a"))
-    palette.setColor(QPalette.ColorRole.HighlightedText, QColor("#050505"))
+    palette.setColor(QPalette.ColorRole.BrightText, QColor("#ffffff"))
+    palette.setColor(QPalette.ColorRole.Highlight, QColor("#3a3a3a"))
+    palette.setColor(QPalette.ColorRole.HighlightedText, QColor("#ffffff"))
     palette.setColor(QPalette.ColorRole.Link, QColor("#2e9ef6"))
     palette.setColor(QPalette.ColorRole.PlaceholderText, QColor("#6f6f6f"))
     app.setPalette(palette)
