@@ -203,9 +203,9 @@ Or let the backend auto-detect:
        $ uv run python -m palinstrophy.turbo_simulator 256 10000 10 1001 0.75 auto PAO
 
 
-## The DNS with CuPy (8192 x 8192) Dedicated GPU memory 18/24 GB
+## The DNS with CuPy (9216 x 9216) Dedicated GPU memory 20GB of 24GB
 
-![CuPy](https://raw.githubusercontent.com/mannetroll/palinstrophy/v0.1.4/images/N8192.png)
+![CuPy](https://raw.githubusercontent.com/mannetroll/palinstrophy/v0.1.4/images/N9216.png)
 
 
 ## Profiling
