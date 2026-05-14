@@ -593,10 +593,8 @@ class MainWindow(QMainWindow):
         self.n_combo.setCurrentText(str(self.sim.N))
 
         # Reynolds display (Re) — now computed by adapt_visc()
-        self.re_edit = QLineEdit()
-        self.re_edit.setFrame(False)
+        self.re_edit = QLabel()
         self.re_edit.setToolTip("Reynolds Number (Re)")
-        self.re_edit.setReadOnly(True)
         self.re_edit.setFixedWidth(100)
         self.re_edit.setText(str(self.sim.re))
 
@@ -799,9 +797,9 @@ class MainWindow(QMainWindow):
         row1.addWidget(self.spectrum_button)
         row1.addWidget(self.metrics_button)
         row1.addSpacing(2)
+        row1.addSpacing(100)
         row1.addWidget(self.re_edit)
-        row1.addSpacing(20)
-        #row1.addWidget(self.t_over_tl_label)
+        row1.addWidget(self.t_over_tl_label)
         row1.addStretch(1)
         main.addLayout(row1)
         if sys.platform == "win32":
