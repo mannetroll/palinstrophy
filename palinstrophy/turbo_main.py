@@ -37,37 +37,37 @@ RESTART_FILE = "restart.nc"
 GUI_QSS = """
 QMainWindow, QWidget {
     background-color: #050505;
-    color: #d8d8d8;
+    color: #ccc;
 }
 
 QLabel {
     background-color: transparent;
-    color: #a6a6a6;
+    color: #ccc;
 }
 
 QStatusBar {
     background-color: #050505;
-    color: #aaa;
+    color: #ccc;
     border-top: 1px solid #3a3a3a;
 }
 
 QLineEdit, QComboBox {
     background-color: #121212;
-    color: #bbb;
+    color: #ccc;
     border-color: #2a2a2a;
     selection-background-color: #3a3a3a;
-    selection-color: #aaa;
+    selection-color: #ccc;
 }
 
 QLineEdit:read-only {
-    color: #bbb;
+    color: #ccc;
 }
 
 QComboBox QAbstractItemView {
     background-color: #101010;
-    color: #e3e3e3;
+    color: #ccc;
     selection-background-color: #3a3a3a;
-    selection-color: #bbb;
+    selection-color: #ddd;
 }
 
 QPushButton {
