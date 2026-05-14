@@ -9,8 +9,8 @@ import sys
 import time
 from typing import Optional, Literal, cast, get_args
 
-from PySide6.QtCore import QSize, QTimer, Qt, QStandardPaths
-from PySide6.QtGui import QIcon, QImage, QPixmap, QFontDatabase, qRgb, QKeySequence, QShortcut
+from PySide6.QtCore import QEvent, QPoint, QSize, QTimer, Qt, QStandardPaths
+from PySide6.QtGui import QColor, QIcon, QImage, QPixmap, QFontDatabase, QPalette, qRgb, QKeySequence, QShortcut, QPainter
 from PySide6.QtWidgets import (
     QApplication,
     QMainWindow,
@@ -33,6 +33,101 @@ from palinstrophy.turbo_wrapper import DnsSimulator
 
 FUSION = "Fusion"
 RESTART_FILE = "restart.nc"
+
+GUI_QSS = """
+QMainWindow, QWidget {
+    background-color: #050505;
+    color: #ccc;
+}
+
+QLabel {
+    background-color: transparent;
+    color: #ccc;
+}
+
+QStatusBar {
+    background-color: #050505;
+    color: #ccc;
+    border-top: 1px solid #3a3a3a;
+}
+
+QLineEdit, QComboBox {
+    background-color: #121212;
+    color: #ccc;
+    border-color: #2a2a2a;
+    selection-background-color: #3a3a3a;
+    selection-color: #ccc;
+}
+
+QLineEdit:read-only {
+    color: #ccc;
+}
+
+QComboBox QAbstractItemView {
+    background-color: #101010;
+    color: #ccc;
+    selection-background-color: #3a3a3a;
+    selection-color: #ddd;
+}
+
+QPushButton {
+    background-color: #121212;
+    color: #e3e3e3;
+    border-color: #2a2a2a;
+}
+
+QPushButton:disabled {
+    background-color: #0b0b0b;
+    color: #5f5f5f;
+    border-color: #1d1d1d;
+}
+
+QPushButton:checked {
+    background-color: #ff7a1a;
+    color: #050505;
+    border-color: #ff7a1a;
+}
+
+QCheckBox {
+    background-color: transparent;
+    color: #d8d8d8;
+}
+
+QCheckBox::indicator {
+    background-color: #121212;
+    border-color: #2a2a2a;
+}
+
+QCheckBox::indicator:checked {
+    background-color: #ff7a1a;
+    border-color: #ff7a1a;
+}
+
+QToolTip {
+    background-color: #121212;
+    color: #e3e3e3;
+    border-color: #2a2a2a;
+}
+"""
+
+def _apply_gui_colors(app: QApplication) -> None:
+    palette = QPalette()
+    palette.setColor(QPalette.ColorRole.Window, QColor("#050505"))
+    palette.setColor(QPalette.ColorRole.WindowText, QColor("#d8d8d8"))
+    palette.setColor(QPalette.ColorRole.Base, QColor("#101010"))
+    palette.setColor(QPalette.ColorRole.AlternateBase, QColor("#151515"))
+    palette.setColor(QPalette.ColorRole.ToolTipBase, QColor("#121212"))
+    palette.setColor(QPalette.ColorRole.ToolTipText, QColor("#e3e3e3"))
+    palette.setColor(QPalette.ColorRole.Text, QColor("#e3e3e3"))
+    palette.setColor(QPalette.ColorRole.Button, QColor("#121212"))
+    palette.setColor(QPalette.ColorRole.ButtonText, QColor("#e3e3e3"))
+    palette.setColor(QPalette.ColorRole.BrightText, QColor("#ffffff"))
+    palette.setColor(QPalette.ColorRole.Highlight, QColor("#3a3a3a"))
+    palette.setColor(QPalette.ColorRole.HighlightedText, QColor("#ffffff"))
+    palette.setColor(QPalette.ColorRole.Link, QColor("#2e9ef6"))
+    palette.setColor(QPalette.ColorRole.PlaceholderText, QColor("#6f6f6f"))
+    app.setPalette(palette)
+    app.setStyleSheet(GUI_QSS)
 
 
 # Simple helper: build a 256x3 uint8 LUT from color stops in 0..1
@@ -337,6 +432,7 @@ def _setup_shortcuts(self):
         (self.update_combo.currentIndex() + 1) % self.update_combo.count()
     ))
     self._sc_a = sc("A", self.visc_adapt_button.click)
+    self._sc_quit = sc("Ctrl+Q", self.close)
 
 
 # Cache for k^2 grids:
@@ -358,7 +454,7 @@ MOVIE_FRAME_STEM = "Ω_Inferno"
 class MainWindow(QMainWindow):
     def __init__(self, sim: DnsSimulator, steps: str, update: str, iterations: int, mov: int = 0) -> None:
         super().__init__()
-
+        self.setWindowFlags(Qt.WindowType.FramelessWindowHint)
         self.sim = sim
         self.update = update
         self.steps = steps
@@ -393,6 +489,12 @@ class MainWindow(QMainWindow):
         self._spectrum_average = dns_all.SpectrumAverageState()
         self._last_spectrum_sample_step: Optional[int] = None
 
+        self.title_label = QLabel()
+        self.title_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.title_label.setStyleSheet("color: #ffffff; padding-bottom: 6px;")
+        self.title_label.installEventFilter(self)
+        self._title_drag_offset: Optional[QPoint] = None
+
         # --- central image label ---
         self.image_label = QLabel()
         self.image_label.setContentsMargins(0, 0, 0, 0)
@@ -408,14 +510,28 @@ class MainWindow(QMainWindow):
 
         # Start button
         self.start_button = QPushButton()
-        self.start_button.setIcon(style.standardIcon(QStyle.StandardPixmap.SP_MediaPlay))
+        start_pixmap = style.standardIcon(QStyle.StandardPixmap.SP_MediaPlay).pixmap(24, 24)
+        painter = QPainter(start_pixmap)
+        painter.setCompositionMode(QPainter.CompositionMode.CompositionMode_SourceIn)
+        painter.fillRect(start_pixmap.rect(), QColor("white"))
+        painter.end()
+        self.start_button.setIcon(QIcon(start_pixmap))
+        #self.start_button.setIcon(style.standardIcon(QStyle.StandardPixmap.SP_MediaPlay))
         self.start_button.setToolTip("G: Start simulation")
         self.start_button.setFixedSize(28, 28)
         self.start_button.setIconSize(QSize(14, 14))
 
+        # Get the standard icon and convert to white
+
         # Stop button
         self.stop_button = QPushButton()
-        self.stop_button.setIcon(style.standardIcon(QStyle.StandardPixmap.SP_MediaStop))
+        stop_pixmap = style.standardIcon(QStyle.StandardPixmap.SP_MediaStop).pixmap(24, 24)
+        painter = QPainter(stop_pixmap)
+        painter.setCompositionMode(QPainter.CompositionMode.CompositionMode_SourceIn)
+        painter.fillRect(stop_pixmap.rect(), QColor("white"))
+        painter.end()
+        self.stop_button.setIcon(QIcon(stop_pixmap))
+        #self.stop_button.setIcon(style.standardIcon(QStyle.StandardPixmap.SP_MediaStop))
         self.stop_button.setToolTip("H: Stop simulation")
         self.stop_button.setFixedSize(28, 28)
         self.stop_button.setIconSize(QSize(14, 14))
@@ -477,9 +593,8 @@ class MainWindow(QMainWindow):
         self.n_combo.setCurrentText(str(self.sim.N))
 
         # Reynolds display (Re) — now computed by adapt_visc()
-        self.re_edit = QLineEdit()
+        self.re_edit = QLabel()
         self.re_edit.setToolTip("Reynolds Number (Re)")
-        self.re_edit.setReadOnly(True)
         self.re_edit.setFixedWidth(100)
         self.re_edit.setText(str(self.sim.re))
 
@@ -524,9 +639,9 @@ class MainWindow(QMainWindow):
         self.cfl_combo = QComboBox()
         self.cfl_combo.setToolTip("L: Controlling Δt (CFL)")
         self.cfl_combo.addItems([
-            "0.05", "0.1", "0.15", "0.2", "0.25", "0.3", "0.4", "0.5",
-            "0.6", "0.64", "0.75", "0.85", "0.95", "1.0", "1.2", "1.5",
-            "1.8", "2.0", "2.1",
+            "0.1", "0.2", "0.3", "0.5",
+            "0.7", "0.8", "0.9", "1.0", "1.2", "1.5",
+            "1.8", "2.0", "2.1", "2.5",
         ])
         self.cfl_combo.setCurrentText(str(self.sim.cfl))
 
@@ -619,7 +734,9 @@ class MainWindow(QMainWindow):
             except (RuntimeError, OSError, ValueError, IndexError):
                 pass
 
-        self.setWindowTitle(f"2D Turbulence {self.title_backend} © Mannetroll")
+        window_title = f"2D Turbulence {self.title_backend} © Mannetroll"
+        self.setWindowTitle(window_title)
+        self.title_label.setText(window_title)
         disp_w, disp_h = self._display_size_px()
         self.resize(disp_w + 40, disp_h + 120)
 
@@ -662,6 +779,7 @@ class MainWindow(QMainWindow):
             margins.bottom() // 2,
         )
         main.setSpacing(0)
+        main.addWidget(self.title_label)
         main.addWidget(self.image_label)
         main.addSpacing(0)
 
@@ -679,9 +797,9 @@ class MainWindow(QMainWindow):
         row1.addWidget(self.spectrum_button)
         row1.addWidget(self.metrics_button)
         row1.addSpacing(2)
+        row1.addSpacing(100)
         row1.addWidget(self.re_edit)
-        row1.addSpacing(20)
-        #row1.addWidget(self.t_over_tl_label)
+        row1.addWidget(self.t_over_tl_label)
         row1.addStretch(1)
         main.addLayout(row1)
         if sys.platform == "win32":
@@ -989,7 +1107,7 @@ class MainWindow(QMainWindow):
 
         from PySide6.QtWidgets import QDialog, QVBoxLayout as QVBox
 
-        dlg = QDialog(self)
+        dlg = QDialog(self, Qt.WindowType.FramelessWindowHint)
         dlg.setWindowTitle("Energy Spectrum")
         dlg.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose)
         QShortcut(QKeySequence("Ctrl+W"), dlg, dlg.close)
@@ -1459,7 +1577,7 @@ class MainWindow(QMainWindow):
 
         from PySide6.QtWidgets import QDialog, QVBoxLayout as QVBox
 
-        dlg = QDialog(self)
+        dlg = QDialog(self, Qt.WindowType.FramelessWindowHint)
         dlg.setWindowTitle("Metrics")
         dlg.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose)
         QShortcut(QKeySequence("Ctrl+W"), dlg, dlg.close)
@@ -2095,6 +2213,29 @@ class MainWindow(QMainWindow):
         self.sim.re = self.sim.state.Re = Re_eff
         self.sim.state.visc = 1.0 / Re_eff
 
+    def eventFilter(self, obj, event):
+        if obj is self.title_label:
+            if event.type() == QEvent.Type.MouseButtonPress and event.button() == Qt.MouseButton.LeftButton:
+                self._title_drag_offset = event.globalPosition().toPoint() - self.frameGeometry().topLeft()
+                event.accept()
+                return True
+
+            if (
+                event.type() == QEvent.Type.MouseMove
+                and self._title_drag_offset is not None
+                and event.buttons() & Qt.MouseButton.LeftButton
+            ):
+                self.move(event.globalPosition().toPoint() - self._title_drag_offset)
+                event.accept()
+                return True
+
+            if event.type() == QEvent.Type.MouseButtonRelease and event.button() == Qt.MouseButton.LeftButton:
+                self._title_drag_offset = None
+                event.accept()
+                return True
+
+        return super().eventFilter(obj, event)
+
     # ------------------------------------------------------------------
     def keyPressEvent(self, event) -> None:
         key = event.key()
@@ -2242,6 +2383,7 @@ def main() -> None:
     MOV = _parse_mov_arg(args)
 
     app = QApplication(sys.argv)
+    _apply_gui_colors(app)
     icon_file = "palinstrophy.icns" if sys.platform == "darwin" else "palinstrophy.ico"
     icon_path = Path(__file__).with_name(icon_file)
     icon = QIcon(str(icon_path))
