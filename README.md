@@ -21,8 +21,8 @@ $ uvx --python 3.13 --from mannetroll-palinstrophy==0.1.4 turbulence
 ## One-liner GPU/CuPy (Windows or Linux with CUDA)
 
 ```
-$ uv run --python 3.13 --with mannetroll-palinstrophy[cuda]==0.1.4 turbulence
-$ uvx --python 3.13 --from mannetroll-palinstrophy[cuda]==0.1.4 turbulence
+$ uv run --python 3.13 --with "mannetroll-palinstrophy[cuda]==0.1.4" turbulence
+$ uvx --python 3.13 --from "mannetroll-palinstrophy[cuda]==0.1.4" turbulence
 ```
 
 
@@ -31,11 +31,11 @@ The solver includes:
 
 - **PAO-style random-field initialization**
 - **3/2 de-aliasing** in spectral space
-- **Crank–Nicolson** time integration
+- **CNAB2** and **LS-IMEX-RK3** time integration
 - **CFL-based adaptive time stepping** (Δt updated from the current flow state)
 
-### cupystorm GUI (PySide6)
-Run an cupystorm window that:
+### `turbulence` GUI (PySide6)
+Run the `turbulence` GUI to:
 
 - Displays the flow field as a live image (fast Indexed8 palette rendering)
 - Lets you switch displayed variable:
@@ -44,14 +44,15 @@ Run an cupystorm window that:
   - **Ω** (vorticity)
   - **φ** (stream function)
 - Lets you switch **colormap** (several built-in palettes)
-- Lets you change simulation parameters on the fly:
+- Lets you change simulation settings on the fly:
   - Grid size **N**
-  - Reynolds number **Re** (adapted)
   - Initial spectrum peak **K0**
   - Start spectrum **KM3** or **PAO**
   - CFL number **CFL**
+  - Time stepper **CNAB2** or **LS-IMEX-RK3**
   - Max steps / auto-reset limit
   - GUI update interval (how often to refresh the display)
+  - Displays the adapted Reynolds number **Re**
 
 ### Keyboard shortcuts
 Single-key shortcuts (application-wide) for fast control:
@@ -73,7 +74,7 @@ From the GUI you can:
 
 - **Save the current frame** as a PNG image
 - **Dump full-resolution fields** to a folder as PGM images:
-  - u-velocity, v-velocity, kinetic energy, vorticity
+  - u-velocity, v-velocity, kinetic energy, vorticity, stream function
 
 ### Display scaling
 
@@ -196,11 +197,11 @@ Download: https://developer.nvidia.com/cuda-downloads
 
 4. Run in GPU mode:
 
-       $ uv run python -m palinstrophy.turbo_simulator 256 10000 10 1001 0.75 gpu KM3
+       $ uv run python -m palinstrophy.turbo_simulator 256 10000 10 1001 0.75 gpu 100 KM3
 
 Or let the backend auto-detect:
 
-       $ uv run python -m palinstrophy.turbo_simulator 256 10000 10 1001 0.75 auto PAO
+       $ uv run python -m palinstrophy.turbo_simulator 256 10000 10 1001 0.75 auto 100 PAO
 
 
 ## The DNS with CuPy (9216 x 9216) Dedicated GPU memory 20GB of 24GB
@@ -212,7 +213,7 @@ Or let the backend auto-detect:
 
 ### cProfile (CPU)
 
-    $ python -m cProfile -o turbo_simulator.prof -m palinstrophy.turbo_simulator 256 10000 10 201 0.75 cpu KM3
+    $ python -m cProfile -o turbo_simulator.prof -m palinstrophy.turbo_simulator 256 10000 10 201 0.75 cpu 100 KM3
 
 Inspect the results:
 
@@ -240,13 +241,13 @@ Install Scalene:
 
 Run with GUI report:
 
-    $ scalene -m palinstrophy.turbo_simulator 256 10000 10 201 0.75 cpu KM3
+    $ scalene -m palinstrophy.turbo_simulator 256 10000 10 201 0.75 cpu 100 KM3
 
 ### Memory & CPU profiling with Scalene (CLI only)
 
 For a terminal-only summary:
 
-    $ scalene --cli --cpu -m palinstrophy.turbo_simulator 512 10000 10 201 0.75 cpu KM3
+    $ scalene --cli --cpu -m palinstrophy.turbo_simulator 512 10000 10 201 0.75 cpu 100 KM3
     $ scalene --cli --cpu -m palinstrophy.turbo_main 512 15 10000 1E5 0.1 auto 10 KM3 201
 
 ## The power spectrum of the energy field
