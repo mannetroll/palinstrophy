@@ -9,7 +9,7 @@ import sys
 import time
 from typing import Optional, Literal, cast, get_args
 
-from PySide6.QtCore import QSize, QTimer, Qt, QStandardPaths
+from PySide6.QtCore import QEvent, QPoint, QSize, QTimer, Qt, QStandardPaths
 from PySide6.QtGui import QColor, QIcon, QImage, QPixmap, QFontDatabase, QPalette, qRgb, QKeySequence, QShortcut, QPainter
 from PySide6.QtWidgets import (
     QApplication,
@@ -453,7 +453,7 @@ MOVIE_FRAME_STEM = "Ω_Inferno"
 class MainWindow(QMainWindow):
     def __init__(self, sim: DnsSimulator, steps: str, update: str, iterations: int, mov: int = 0) -> None:
         super().__init__()
-
+        self.setWindowFlags(Qt.WindowType.FramelessWindowHint)
         self.sim = sim
         self.update = update
         self.steps = steps
@@ -487,6 +487,12 @@ class MainWindow(QMainWindow):
         self._csv_header = list(CSV_HEADER)
         self._spectrum_average = dns_all.SpectrumAverageState()
         self._last_spectrum_sample_step: Optional[int] = None
+
+        self.title_label = QLabel()
+        self.title_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.title_label.setStyleSheet("color: #ffffff; padding-bottom: 6px;")
+        self.title_label.installEventFilter(self)
+        self._title_drag_offset: Optional[QPoint] = None
 
         # --- central image label ---
         self.image_label = QLabel()
@@ -729,7 +735,9 @@ class MainWindow(QMainWindow):
             except (RuntimeError, OSError, ValueError, IndexError):
                 pass
 
-        self.setWindowTitle(f"2D Turbulence {self.title_backend} © Mannetroll")
+        window_title = f"2D Turbulence {self.title_backend} © Mannetroll"
+        self.setWindowTitle(window_title)
+        self.title_label.setText(window_title)
         disp_w, disp_h = self._display_size_px()
         self.resize(disp_w + 40, disp_h + 120)
 
@@ -772,6 +780,7 @@ class MainWindow(QMainWindow):
             margins.bottom() // 2,
         )
         main.setSpacing(0)
+        main.addWidget(self.title_label)
         main.addWidget(self.image_label)
         main.addSpacing(0)
 
@@ -1099,7 +1108,7 @@ class MainWindow(QMainWindow):
 
         from PySide6.QtWidgets import QDialog, QVBoxLayout as QVBox
 
-        dlg = QDialog(self)
+        dlg = QDialog(self, Qt.WindowType.FramelessWindowHint)
         dlg.setWindowTitle("Energy Spectrum")
         dlg.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose)
         QShortcut(QKeySequence("Ctrl+W"), dlg, dlg.close)
@@ -1569,7 +1578,7 @@ class MainWindow(QMainWindow):
 
         from PySide6.QtWidgets import QDialog, QVBoxLayout as QVBox
 
-        dlg = QDialog(self)
+        dlg = QDialog(self, Qt.WindowType.FramelessWindowHint)
         dlg.setWindowTitle("Metrics")
         dlg.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose)
         QShortcut(QKeySequence("Ctrl+W"), dlg, dlg.close)
@@ -2204,6 +2213,29 @@ class MainWindow(QMainWindow):
         Re_eff = max(Re0 / factor, min(factor * Re0, float(1.0 / nu_new)))
         self.sim.re = self.sim.state.Re = Re_eff
         self.sim.state.visc = 1.0 / Re_eff
+
+    def eventFilter(self, obj, event):
+        if obj is self.title_label:
+            if event.type() == QEvent.Type.MouseButtonPress and event.button() == Qt.MouseButton.LeftButton:
+                self._title_drag_offset = event.globalPosition().toPoint() - self.frameGeometry().topLeft()
+                event.accept()
+                return True
+
+            if (
+                event.type() == QEvent.Type.MouseMove
+                and self._title_drag_offset is not None
+                and event.buttons() & Qt.MouseButton.LeftButton
+            ):
+                self.move(event.globalPosition().toPoint() - self._title_drag_offset)
+                event.accept()
+                return True
+
+            if event.type() == QEvent.Type.MouseButtonRelease and event.button() == Qt.MouseButton.LeftButton:
+                self._title_drag_offset = None
+                event.accept()
+                return True
+
+        return super().eventFilter(obj, event)
 
     # ------------------------------------------------------------------
     def keyPressEvent(self, event) -> None:
