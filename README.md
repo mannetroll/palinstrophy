@@ -14,15 +14,15 @@ It supports:
 ```
 $ curl -LsSf https://astral.sh/uv/install.sh | sh
 $ uv cache clean mannetroll-palinstrophy
-$ uv run --python 3.13 --with mannetroll-palinstrophy==0.1.4 turbulence
-$ uvx --python 3.13 --from mannetroll-palinstrophy==0.1.4 turbulence
+$ uv run --python 3.13 --with mannetroll-palinstrophy==0.1.5 turbulence
+$ uvx --python 3.13 --from mannetroll-palinstrophy==0.1.5 turbulence
 ```
 
 ## One-liner GPU/CuPy (Windows or Linux with CUDA)
 
 ```
-$ uv run --python 3.13 --with "mannetroll-palinstrophy[cuda]==0.1.4" turbulence
-$ uvx --python 3.13 --from "mannetroll-palinstrophy[cuda]==0.1.4" turbulence
+$ uv run --python 3.13 --with "mannetroll-palinstrophy[cuda]==0.1.5" turbulence
+$ uvx --python 3.13 --from "mannetroll-palinstrophy[cuda]==0.1.5" turbulence
 ```
 
 
@@ -173,7 +173,7 @@ field differences should shrink as the timestep is reduced.
 
 ## The DNS with SciPy (1024 x 1024)
 
-![SciPy](https://raw.githubusercontent.com/mannetroll/palinstrophy/v0.1.4/images/N1024.png)
+![SciPy](https://raw.githubusercontent.com/mannetroll/palinstrophy/v0.1.5/images/N1024.png)
 
 ## Enabling GPU with CuPy (CUDA 13)
 
@@ -206,7 +206,7 @@ Or let the backend auto-detect:
 
 ## The DNS with CuPy (9216 x 9216) Dedicated GPU memory 20GB of 24GB
 
-![CuPy](https://raw.githubusercontent.com/mannetroll/palinstrophy/v0.1.4/images/N9216.png)
+![CuPy](https://raw.githubusercontent.com/mannetroll/palinstrophy/v0.1.5/images/N9216.png)
 
 
 ## Profiling
@@ -256,7 +256,7 @@ The radially averaged (isotropic) 2D FFT energy spectrum E(k) computed from the 
 The x-axis is the normalized radial wavenumber (k/k_Nyquist), and the y-axis is the shell-summed spectral energy ∑(|û(k)|² + |v̂(k)|²) accumulated within radial wavenumber bins (DC removed and excluded).  
 A dashed reference slope k⁻³ is drawn (anchored at the spectral peak) to compare against the expected 2D enstrophy-cascade inertial-range power-law behavior.
 
-![spectrum](https://raw.githubusercontent.com/mannetroll/palinstrophy/v0.1.4/images/spectrum.png)
+![spectrum](https://raw.githubusercontent.com/mannetroll/palinstrophy/v0.1.5/images/spectrum.png)
 
 ## FPS Comparison Plot (DNS FPS vs Grid Size and Code)
 
@@ -269,7 +269,7 @@ A dashed reference slope k⁻³ is drawn (anchored at the spectral peak) to comp
 - **NumPy (Python)** (`.py`) — Apple M1 *(single thread)*  
 - **SciPy (Python)** (`.py`) — Apple M1 *(4 workers)*  
 
-![compare](https://raw.githubusercontent.com/mannetroll/palinstrophy/v0.1.4/images/compare.png)
+![compare](https://raw.githubusercontent.com/mannetroll/palinstrophy/v0.1.5/images/compare.png)
 
 
 ## NetCDF Restart
