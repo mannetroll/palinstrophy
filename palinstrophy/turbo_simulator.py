@@ -1,5 +1,5 @@
 """
-turbo_simulator.py — 2D Homogeneous Turbulence DNS with selectable PAO start spectrum (SciPy / CuPy port)
+turbo_simulator.py — 2D Homogeneous Turbulence DNS with selectable PAO start spectrum (SciPy / CuPy / MLX port)
 
 This is a structural port of dns_all.cu to Python.
 
@@ -16,6 +16,14 @@ Key ideas kept from the CUDA version:
 Backends:
   • CPU:  SciPy
   • GPU:  CuPy (if installed); same API used via the `xp` alias.
+  • MLX:  Apple Silicon GPU via Metal (if installed); `xp` is `mlx.core`.
+
+MLX differs from NumPy/CuPy in three ways that shape the port:
+  • slices are copies, not views, so the in-place `out=` buffer reuse used by
+    the SciPy/CuPy paths cannot work — the MLX paths are written functionally
+  • there is no float64 on the Metal GPU, so float64 reductions run on the host
+  • evaluation is lazy, so each step ends with an explicit `mx.eval` to keep the
+    graph (and memory) bounded
 
 This is now a faithful structural port of dns_all.cu:
 
@@ -49,6 +57,12 @@ SCIPYTURBO_SEED_ENV = "SCIPYTURBO_SEED"
 PAO_SEED_MIN = 1
 PAO_SEED_MAX = 5010
 TimeStepper = Literal["CNAB2", "LS_IMEX_RK3", "CHECK"]
+Backend = Literal["cpu", "gpu", "mlx", "auto"]
+
+# MLX's Metal FFT has a fast single-kernel path for transform lengths up to
+# 4096; past that it falls back to a roughly 40x slower path. The solver
+# transforms the 3/2 de-aliasing grid, so the usable limit is N <= 2*4096/3.
+MLX_FFT_FAST_PATH_MAX = 4096
 
 
 def pao_seed_from_env(default: int | None = None) -> int | None:
@@ -161,6 +175,52 @@ try:
 except Exception:  # CuPy is optional
     _cp = None
     print("\r\nCPU: CuPy not installed")
+
+
+def _mlx_device_info(mx_module) -> dict:
+    """Metal device properties, or {} when Metal cannot report them."""
+    try:
+        return dict(mx_module.device_info())
+    except Exception:
+        try:
+            return dict(mx_module.metal.device_info())
+        except Exception:
+            return {}
+
+
+def _mlx_device_summary(mx_module) -> str:
+    """Apple Silicon chip name + working-set size, if Metal can report them."""
+    info = _mlx_device_info(mx_module)
+    if not info:
+        return ""
+
+    name = str(info.get("device_name", "Apple GPU"))
+    working_set = info.get("max_recommended_working_set_size")
+    if working_set:
+        return f"{name} ({float(working_set) / (1024 ** 3):.1f} GiB working set)"
+    return name
+
+
+def mlx_device_name() -> str:
+    """Chip name of the active Metal device; '' when MLX is unavailable."""
+    if _mx is None:
+        return ""
+    return str(_mlx_device_info(_mx).get("device_name", "Apple GPU"))
+
+
+try:
+    import mlx.core as _mx  # type: ignore
+
+    # Importing MLX succeeds without a GPU; touching the device is what fails
+    # (headless/sandboxed sessions). Force that check now so `auto` can fall
+    # back to SciPy instead of dying on the first allocation.
+    _mx.eval(_mx.zeros((1,), dtype=_mx.float32))
+    _mlx_summary = _mlx_device_summary(_mx)
+    print(f"MLX: {_mlx_summary}" if _mlx_summary else "MLX: available")
+except Exception as _mlx_exc:  # MLX is optional (Apple Silicon only)
+    _mx = None
+    if platform.system() == "Darwin" and platform.machine() == "arm64":
+        print(f"MLX: unavailable ({type(_mlx_exc).__name__}: {str(_mlx_exc)[:80]})")
 
 print(f"Python: {platform.python_version()} ({platform.python_implementation()}) | OS: {platform.platform()}")
 import numpy as np  # in addition to your existing _np alias, this is fine
@@ -510,12 +570,62 @@ def _fft_mod_for_state(S: "DnsState"):
     ONLY FFT selection:
       - CPU: scipy.fft
       - GPU: cupyx.scipy.fft (fallback to cupy.fft if cupyx.scipy.fft is unavailable)
+      - MLX: mlx.core.fft (Metal)
     """
     if S.backend == "gpu":
         if _cpfft is not None:
             return _cpfft
         return S.xp.fft
+    if S.backend == "mlx":
+        return S.xp.fft
     return _spfft
+
+
+# ===============================================================
+# MLX compatibility shims
+#
+# MLX is close enough to NumPy that most expressions port directly, but a few
+# idioms this solver leans on do not exist there:
+#   - `xp.complex64(0)` / `xp.float32(0)` — dtypes are not scalar constructors
+#   - `arr.astype(dt, copy=False)`        — no `copy` keyword
+#   - `arr[...] = value`                  — Ellipsis indexing is rejected
+# These helpers keep the shared code paths readable instead of branching inline.
+# ===============================================================
+
+def _is_mlx(xp) -> bool:
+    return _mx is not None and xp is _mx
+
+
+def _zero_c(xp):
+    """Complex zero usable as an assignment source on any backend."""
+    return 0j if _is_mlx(xp) else xp.complex64(0.0 + 0.0j)
+
+
+def _f32(xp, value):
+    """float32 scalar constant; MLX dtypes are not scalar constructors."""
+    return float(_np.float32(value)) if _is_mlx(xp) else xp.float32(value)
+
+
+def _astype32(arr, dtype):
+    """astype() without the `copy` keyword MLX does not accept."""
+    if _mx is not None and isinstance(arr, _mx.array):
+        return arr.astype(dtype)
+    return arr.astype(dtype, copy=False)
+
+
+def _div_by_real(xp, num, den_real):
+    """
+    Divide a complex array by a real one.
+
+    MLX promotes the real divisor to complex and evaluates the full complex
+    quotient (a+bi)/(c+0i) as ((ac+bd) + (bc-ad)i) / (c*c + d*d), which squares
+    the denominator. A regulariser like 1e-30 then underflows float32 to zero
+    and the result is NaN. Scaling by the reciprocal keeps c in range.
+    NumPy and CuPy special-case a real divisor, so they divide directly.
+    """
+    if _is_mlx(xp):
+        return num * (1.0 / den_real)
+    return num / den_real
 
 # ===============================================================
 # Fortran-style random generator used in PAO (port of frand)
@@ -544,26 +654,50 @@ def frand(seed_list):
 # ---------------------------------------------------------------------------
 # Backend selection: xp = np (CPU) or cp (GPU, if available)
 # ---------------------------------------------------------------------------
-def get_xp(backend: Literal["cpu", "gpu", "auto"] = "auto"):
+def get_xp(backend: Backend = "auto"):
     """
     backend = "gpu"  → force CuPy cuFFT (error if not available)
+    backend = "mlx"  → force MLX / Metal on Apple Silicon (error if not available)
     backend = "cpu"  → force SciPy FFT
-    backend = "auto" → use CuPy if available and a GPU is present, else SciPy
+    backend = "auto" → CuPy if available, else MLX if available, else SciPy
     """
-    # Auto-select: try GPU first
+    # Auto-select: CUDA first, then Apple Silicon, then CPU
     if backend == "auto":
         if _cp is not None:
             return _cp
+        if _mx is not None:
+            return _mx
         return _np
 
-    # Explicit GPU / CPU selection
+    # Explicit GPU / MLX / CPU selection
     if backend == "gpu":
         if _cp is None:
             raise RuntimeError("CuPy is not installed, but backend='gpu' was requested.")
         return _cp
 
+    if backend == "mlx":
+        if _mx is None:
+            raise RuntimeError(
+                "MLX is not available, but backend='mlx' was requested. "
+                "MLX needs Apple Silicon plus a reachable Metal device."
+            )
+        return _mx
+
     # backend == "cpu"
     return _np
+
+
+def effective_backend(backend: Backend = "auto") -> str:
+    """Resolve "auto" to the backend get_xp() actually hands back."""
+    if backend != "auto":
+        return backend
+
+    xp = get_xp("auto")
+    if _cp is not None and xp is _cp:
+        return "gpu"
+    if _mx is not None and xp is _mx:
+        return "mlx"
+    return "cpu"
 
 
 # ---------------------------------------------------------------------------
@@ -729,6 +863,7 @@ class DnsState:
     step3_GA: any = None          # float32 (NZ, NX_half)
     step3_G2mA2: any = None       # float32 (NZ, NX_half)
     step3_invK2_sub: any = None   # float32 (NZ, NX_half-1)
+    step3_invK2_full: any = None  # float32 (NZ, NX_half), MLX only
 
     step3_ARG: any = None         # float32 (NZ, NX_half)
     step3_DEN: any = None         # float32 (NZ, NX_half)
@@ -753,15 +888,86 @@ class DnsState:
             object.__setattr__(self, "cnm1_needs_update", True)
 
     def sync(self):
-        """For a CuPy backend, force synchronization at convenient checkpoints."""
+        """Force synchronization at convenient checkpoints (CuPy / MLX)."""
         if self.backend == "gpu":
             self.xp.cuda.Stream.null.synchronize()  # type: ignore[attr-defined]
+        elif self.backend == "mlx":
+            self.eval_state()
+            _mx.synchronize()
+
+    def eval_state(self):
+        """
+        Realize the lazy MLX graph for the arrays that carry state across steps.
+
+        MLX builds a graph instead of computing eagerly, so without this the
+        solver would accumulate every step's operations until something forced
+        evaluation — unbounded memory and meaningless per-step timings.
+        """
+        if self.backend != "mlx":
+            return
+        pending = [
+            a for a in (self.om2, self.fnm1, self.uc_full, self.ur_full, self.uc, self.ur)
+            if a is not None
+        ]
+        if pending:
+            _mx.eval(*pending)
 
     @staticmethod
     def _scalar_item(x) -> float:
         return float(x.item()) if hasattr(x, "item") else float(x)
 
+    def _flow_eddy_metrics_mlx(self) -> tuple[float, float, float]:
+        """
+        Same metrics as flow_eddy_metrics, but Metal has no float64: the float32
+        fields are formed on-device and the float64 reductions run on the host.
+        Unified memory makes that handoff a view rather than a copy, and the
+        result matches the SciPy path exactly.
+        """
+        u = self.ur_full[0]
+        v = self.ur_full[1]
+        speed2 = _np.asarray(u * u + v * v)
+        U = math.sqrt(max(0.0, float(speed2.mean(dtype=_np.float64))))
+
+        k2 = _np.asarray(self.step3_K2)
+        nx_half = int(k2.shape[1])
+        nonzero = k2 > _np.float32(0.0)
+
+        rfft_weight = getattr(self, "_eddy_rfft_w_np", None)
+        if rfft_weight is None or rfft_weight.shape[0] != nx_half:
+            rfft_weight = _np.full(nx_half, _np.float32(2.0), dtype=_np.float32)
+            rfft_weight[0] = _np.float32(1.0)
+            if nx_half > 1:
+                rfft_weight[-1] = _np.float32(1.0)
+            self._eddy_rfft_w_np = rfft_weight
+
+        inv_k = getattr(self, "_eddy_inv_k_np", None)
+        if inv_k is None or inv_k.shape != k2.shape:
+            inv_k = _np.where(
+                nonzero,
+                _np.float32(1.0) / _np.sqrt(_np.where(nonzero, k2, _np.float32(1.0))),
+                _np.float32(0.0),
+            )
+            self._eddy_inv_k_np = inv_k
+
+        om2 = _np.asarray(self.om2)
+        om2_power = om2.real * om2.real + om2.imag * om2.imag
+        safe_k2 = _np.where(nonzero, k2, _np.float32(1.0))
+        power = _np.where(nonzero, om2_power / safe_k2, _np.float32(0.0))
+        weighted_power = power * rfft_weight
+        energy_sum_f = float(weighted_power.sum(dtype=_np.float64) - weighted_power[0, 0])
+
+        if energy_sum_f <= 0.0:
+            return U, float("nan"), float("nan")
+
+        length_sum = float((weighted_power * inv_k).sum(dtype=_np.float64))
+        L = 2.0 * math.pi * length_sum / energy_sum_f
+        tau_l = L / U if U > 0.0 else float("nan")
+        return U, L, tau_l
+
     def flow_eddy_metrics(self) -> tuple[float, float, float]:
+        if self.backend == "mlx":
+            return self._flow_eddy_metrics_mlx()
+
         xp = self.xp
         u = self.ur_full[0]
         v = self.ur_full[1]
@@ -880,18 +1086,14 @@ def create_dns_state(
     Re: float = 1e5,
     K0: float = 100.0,
     CFL: float = 0.75,
-    backend: Literal["cpu", "gpu", "auto"] = "auto",
+    backend: Backend = "auto",
     seed: int = 1,
     skip_pao: bool = False,
     populate_compact_ur: bool = True,
     start_spectrum: SPECTRUM = "KM3",
 ) -> DnsState:
     xp = get_xp(backend)
-
-    if backend == "auto":
-        effective_backend = "gpu" if (_cp is not None and xp is _cp) else "cpu"
-    else:
-        effective_backend = backend
+    resolved_backend = effective_backend(backend)
 
     Nbase = N
     NX = N
@@ -913,7 +1115,7 @@ def create_dns_state(
 
     state = DnsState(
         xp=xp,
-        backend=effective_backend,
+        backend=resolved_backend,
         Nbase=Nbase,
         NX=NX,
         NZ=NZ,
@@ -946,9 +1148,12 @@ def create_dns_state(
     state.ur_full = xp.zeros((3, NZ_full, NX_full), dtype=xp.float32)
     state.uc_full = xp.zeros((3, NZ_full, NK_full), dtype=xp.complex64)
 
-    # CFL scratch buffers (full 3/2 grid) to avoid per-step temporaries
-    state.cfl_tmp = xp.empty((NZ_full, NX_full), dtype=xp.float32)
-    state.cfl_absw = xp.empty((NZ_full, NX_full), dtype=xp.float32)
+    # CFL scratch buffers (full 3/2 grid) to avoid per-step temporaries.
+    # MLX reduces functionally and never touches these, so skip the allocation —
+    # at large N it is a meaningful slice of the unified memory budget.
+    if state.backend != "mlx":
+        state.cfl_tmp = xp.empty((NZ_full, NX_full), dtype=xp.float32)
+        state.cfl_absw = xp.empty((NZ_full, NX_full), dtype=xp.float32)
 
     if state.backend == "gpu":
         state.time_scalars = xp.asarray((state.dt, state.cn, state.cnm1), dtype=xp.float32)
@@ -982,6 +1187,18 @@ def create_dns_state(
             print("FFT plan_mod: None")
         else:
             print(f"FFT plan_mod: {plan_mod.__name__}")
+    elif state.backend == "mlx":
+        # MLX plans its own Metal FFTs internally; nothing to precompute here.
+        print(f"FFT: mlx.core.fft on {_mlx_device_summary(_mx) or 'Apple GPU'}")
+        if max(state.NX_full, state.NZ_full) > MLX_FFT_FAST_PATH_MAX:
+            print(
+                f" WARNING: 3/2 grid is {state.NZ_full}x{state.NX_full}; MLX's fast Metal FFT"
+                f" only covers transforms up to {MLX_FFT_FAST_PATH_MAX}."
+            )
+            print(
+                f"          Beyond that it drops to a ~40x slower path — expect the CPU"
+                f" backend to win. Use N <= {2 * MLX_FFT_FAST_PATH_MAX // 3} for MLX."
+            )
     else:
         print(f"FFT workers (CPU): {state.fft_workers}")
 
@@ -993,8 +1210,9 @@ def create_dns_state(
     state.cn = 1.0
     state.cnm1 = 0.0
 
-    state.scratch1 = xp.zeros((NZ, NX_half), dtype=xp.complex64)
-    state.scratch2 = xp.zeros((NZ, NX_half), dtype=xp.complex64)
+    if state.backend != "mlx":
+        state.scratch1 = xp.zeros((NZ, NX_half), dtype=xp.complex64)
+        state.scratch2 = xp.zeros((NZ, NX_half), dtype=xp.complex64)
 
     # Precompute index grids used in STEP3 (avoid per-step allocations)
     NZ = state.NZ
@@ -1009,10 +1227,12 @@ def create_dns_state(
         zi + NZ_half,
     )
 
-    # STEP3: preallocate gather buffers for UC low-k band (avoid advanced-index allocs)
-    state.step3_uc1_th = xp.empty((NZ, NX_half), dtype=xp.complex64)
-    state.step3_uc2_th = xp.empty((NZ, NX_half), dtype=xp.complex64)
-    state.step3_uc3_th = xp.empty((NZ, NX_half), dtype=xp.complex64)
+    # STEP3: preallocate gather buffers for UC low-k band (avoid advanced-index allocs).
+    # The MLX path gathers functionally and has no use for them.
+    if state.backend != "mlx":
+        state.step3_uc1_th = xp.empty((NZ, NX_half), dtype=xp.complex64)
+        state.step3_uc2_th = xp.empty((NZ, NX_half), dtype=xp.complex64)
+        state.step3_uc3_th = xp.empty((NZ, NX_half), dtype=xp.complex64)
 
     # STEP3: precompute constant spectral grids (float32) used each step
     ax = state.alfa[None, :]          # (1, NX_half)
@@ -1020,36 +1240,49 @@ def create_dns_state(
     ax2 = ax * ax
     gz2 = gz * gz
 
-    state.step3_K2 = (ax2 + gz2).astype(xp.float32, copy=False)
-    state.step3_GA = (gz * ax).astype(xp.float32, copy=False)
-    state.step3_G2mA2 = (gz2 - ax2).astype(xp.float32, copy=False)
+    state.step3_K2 = _astype32(ax2 + gz2, xp.float32)
+    state.step3_GA = _astype32(gz * ax, xp.float32)
+    state.step3_G2mA2 = _astype32(gz2 - ax2, xp.float32)
 
-    if NX_half > 1:
-        state.step3_invK2_sub = (xp.float32(1.0) / (state.step3_K2[:, 1:] + xp.float32(1.0e-30))).astype(xp.float32, copy=False)
+    one_f32 = _f32(xp, 1.0)
+    tiny_f32 = _f32(xp, 1.0e-30)
+
+    if state.backend == "mlx":
+        # MLX reconstructs the full width in one shot (no views to write into a
+        # sub-slice), so it needs 1/K2 across all kx rather than just kx >= 1.
+        state.step3_invK2_full = _astype32(one_f32 / (state.step3_K2 + tiny_f32), xp.float32)
+    elif NX_half > 1:
+        state.step3_invK2_sub = _astype32(
+            one_f32 / (state.step3_K2[:, 1:] + tiny_f32), xp.float32
+        )
     else:
-        state.step3_invK2_sub = xp.empty((NZ, 0), dtype=xp.float32)
+        state.step3_invK2_sub = xp.zeros((NZ, 0), dtype=xp.float32)
 
     # STEP3: per-step float/complex scratch (avoid allocating ARG/DEN/NUM each step)
-    state.step3_ARG = xp.empty((NZ, NX_half), dtype=xp.float32)
-    state.step3_DEN = xp.empty((NZ, NX_half), dtype=xp.float32)
-    state.step3_NUM = xp.empty((NZ, NX_half), dtype=xp.complex64)
+    if state.backend != "mlx":
+        state.step3_ARG = xp.empty((NZ, NX_half), dtype=xp.float32)
+        state.step3_DEN = xp.empty((NZ, NX_half), dtype=xp.float32)
+        state.step3_NUM = xp.empty((NZ, NX_half), dtype=xp.complex64)
 
     # ix=0 branch mask (Z>=1 and GAMMA!=0), constant
     state.step3_mask_ix0 = (state.step3_z_indices >= 1) & (xp.abs(state.gamma) > 0.0)
 
     # Precompute safe inv_gamma for ix=0 (avoid xp.divide(where=...) which CuPy rejects here)
-    mask0 = xp.asarray(state.step3_mask_ix0)  # stays on-GPU for CuPy
-    safe_gamma = xp.where(mask0, state.gamma, xp.float32(1.0))  # no zeros in denominator
-    inv_gamma0 = (xp.float32(1.0) / safe_gamma).astype(xp.float32, copy=False)
-    inv_gamma0 *= mask0.astype(xp.float32, copy=False)  # zero out invalid lanes
+    mask0 = xp.asarray(state.step3_mask_ix0)  # stays on-device for CuPy/MLX
+    safe_gamma = xp.where(mask0, state.gamma, one_f32)  # no zeros in denominator
+    inv_gamma0 = _astype32(one_f32 / safe_gamma, xp.float32)
+    inv_gamma0 = inv_gamma0 * _astype32(mask0, xp.float32)  # zero out invalid lanes
 
     state.step3_mask_ix0 = mask0
     state.step3_inv_gamma0 = inv_gamma0
 
-    # DIVXZ = 1/(3NX/2 * 3NZ/2), constant for fixed N
-    NX32 = xp.float32(1.5) * xp.float32(state.Nbase)
-    NZ32 = xp.float32(1.5) * xp.float32(state.Nbase)
-    state.step3_divxz = xp.float32(1.0) / (NX32 * NZ32)
+    # DIVXZ = 1/(3NX/2 * 3NZ/2), constant for fixed N.
+    # Evaluated in float32 regardless of backend so every backend gets the
+    # identical constant (MLX would otherwise fold a float64 Python scalar).
+    NX32 = _np.float32(1.5) * _np.float32(state.Nbase)
+    NZ32 = _np.float32(1.5) * _np.float32(state.Nbase)
+    divxz = _np.float32(1.0) / (NX32 * NZ32)
+    state.step3_divxz = float(divxz) if _is_mlx(xp) else xp.float32(divxz)
 
     return state
 
@@ -1069,7 +1302,8 @@ def dns_pao_host_init(S: DnsState, skip_pao: bool = False):
     use_km3_spectrum = S.start_spectrum == "KM3"
     spectrum_label = "KM3 k^-3" if use_km3_spectrum else "PAO k*exp(-(k/K0)^2)"
 
-    print("--- INITIALIZING SciPy/CuPy ---", _dt.datetime.now().strftime("%Y-%m-%d %H:%M"))
+    backend_label = {"gpu": "CuPy", "mlx": "MLX"}.get(S.backend, "SciPy")
+    print(f"--- INITIALIZING {backend_label} ---", _dt.datetime.now().strftime("%Y-%m-%d %H:%M"))
     print(f" N={N}, K0={int(K0)}, Re={S.Re:,.1f}")
     print(f" Start spec. = {spectrum_label}")
 
@@ -1217,12 +1451,13 @@ def dns_pao_host_init(S: DnsState, skip_pao: bool = False):
     S.gamma = xp.asarray(gamma, dtype=xp.float32)
 
     # compact UC: host (NK, NE, 3) → xp (NZ, NK, 3) with axes swap
+    # (`[:]` rather than `[...]`: MLX rejects Ellipsis indexing.)
     UC_xp = xp.asarray(UC_host)
-    S.uc[...] = xp.transpose(UC_xp, (1, 0, 2))  # (NE,NK,3) == (NZ,NK,3)
+    S.uc[:] = xp.transpose(UC_xp, (1, 0, 2))  # (NE,NK,3) == (NZ,NK,3)
 
     # full UC_full: host (NK_full, NZ_full, 3) → xp (3, NZ_full, NK_full)
     UC_full_xp = xp.asarray(UC_full_host)
-    S.uc_full[...] = xp.transpose(UC_full_xp, (2, 1, 0))  # (3,NZ_full,NK_full)
+    S.uc_full[:] = xp.transpose(UC_full_xp, (2, 1, 0))  # (3,NZ_full,NK_full)
 
     # ------------------------------------------------------------------
     # Build initial om2 from UC_full (for the rest of the solver)
@@ -1236,7 +1471,7 @@ def dns_pao_host_init(S: DnsState, skip_pao: bool = False):
     dns_calcom_from_uc_full(S)
 
     # No history yet
-    S.fnm1[...] = xp.zeros_like(S.om2)
+    S.fnm1[:] = xp.zeros_like(S.om2)
 
 
 # ---------------------------------------------------------------------------
@@ -1260,6 +1495,12 @@ def vfft_full_inverse_uc_full_to_ur_full(S: DnsState) -> None:
             norm='forward',
         )
         S.ur_full[0:2, :, :] = ur01
+    elif S.backend == "mlx":
+        # MLX supports norm='forward' natively, so the unnormalized result comes
+        # back directly — same convention as the SciPy and cuFFT paths.
+        S.ur_full[0:2, :, :] = fft.irfft2(
+            UC01, s=(S.NZ_full, S.NX_full), axes=(1, 2), norm='forward'
+        )
     else:
         plan = S.fft_plan_irfft2_uc01
         if plan is not None:
@@ -1296,6 +1537,9 @@ def vfft_full_forward_ur_full_to_uc_full(S: DnsState) -> None:
             workers=S.fft_workers,
         )
         S.uc_full[...] = UC
+    elif S.backend == "mlx":
+        # Default norm='backward' applies no forward scaling, matching SciPy.
+        S.uc_full[:] = fft.rfft2(UR, s=(S.NZ_full, S.NX_full), axes=(1, 2))
     else:
         plan = S.fft_plan_rfft2_ur_full
         if plan is not None:
@@ -1334,8 +1578,8 @@ def dns_calcom_from_uc_full(S: DnsState) -> None:
     NX_half = Nbase // 2
     NZ = Nbase
 
-    alfa_1d = S.alfa.astype(xp.float32)      # (NX_half,)
-    gamma_1d = S.gamma.astype(xp.float32)     # (NZ,)
+    alfa_1d = _astype32(S.alfa, xp.float32)   # (NX_half,)
+    gamma_1d = _astype32(S.gamma, xp.float32)  # (NZ,)
 
     # UC_full layout: [comp, z, kx]
     uc1_full = S.uc_full[0]                   # (NZ_full, NK_full)
@@ -1358,7 +1602,7 @@ def dns_calcom_from_uc_full(S: DnsState) -> None:
     om_r = -diff_i
     om_i = diff_r
 
-    S.om2[...] = xp.asarray(om_r + 1j * om_i, dtype=xp.complex64)
+    S.om2[:] = xp.asarray(om_r + 1j * om_i, dtype=xp.complex64)
 
 
 # ---------------------------------------------------------------------------
@@ -1464,6 +1708,11 @@ def dns_step2b(S: DnsState) -> None:
                     "turbo_step2b_mul3",
                 )
             _STEP2B_MUL3_KERNEL(u, w, UR[2], UR[0], UR[1])
+    elif S.backend == "mlx":
+        # `u`/`w` are already independent copies (MLX slices never alias), so the
+        # three products can be built and stacked in one shot. Rebinding beats
+        # three scatter-writes into the existing buffer.
+        S.ur_full = xp.stack([u * u, w * w, u * w], axis=0)
     else:
         # Use in-place multiplies to avoid temporaries
         xp.multiply(u, w, out=UR[2])  # u * w
@@ -1510,7 +1759,9 @@ def dns_step2b(S: DnsState) -> None:
                 (UC, _np.int32(kx_max), _np.int32(z_mid), _np.int32(NK_full), _np.int32(NZ_full)),
             )
         else:
-            UC[0:3, z_mid, 0:kx_max] = xp.complex64(0.0 + 0.0j)
+            # Read through S rather than the local UC: the forward FFT above may
+            # have rebound S.uc_full rather than writing into it.
+            S.uc_full[0:3, z_mid, 0:kx_max] = _zero_c(xp)
 
 
 # ---------------------------------------------------------------------------
@@ -1552,6 +1803,52 @@ def _compute_nonlinear_vorticity_term(S: DnsState, out) -> None:
     xp.multiply(out, S.step3_divxz, out=out)
 
 
+def _compute_nonlinear_vorticity_term_mlx(S: DnsState):
+    """
+    MLX equivalent of _compute_nonlinear_vorticity_term, returning the term
+    instead of writing it into a caller-supplied buffer (MLX has no `out=`).
+    """
+    xp = S.xp
+    NX_half = int(S.Nbase) // 2
+
+    uc_full = S.uc_full
+    z_spec = S.step3_z_spec
+    uc1_th = xp.take(uc_full[0, :, :NX_half], z_spec, axis=0)
+    uc2_th = xp.take(uc_full[1, :, :NX_half], z_spec, axis=0)
+    uc3_th = xp.take(uc_full[2, :, :NX_half], z_spec, axis=0)
+
+    fn = (uc1_th - uc2_th) * S.step3_GA
+    fn = fn + uc3_th * S.step3_G2mA2
+    return fn * S.step3_divxz
+
+
+def _reconstruct_velocity_from_om2_mlx(S: DnsState) -> None:
+    """
+    MLX equivalent of _reconstruct_velocity_from_om2.
+
+    The SciPy/CuPy version writes into the kx >= 1 sub-slice in place and then
+    patches column 0. MLX slices are copies, so the full width is built in one
+    expression and column 0 is overwritten afterwards. alfa[0] == 0 already
+    zeroes out2's first column, but it is set explicitly to mirror the original.
+    """
+    xp = S.xp
+    NZ = int(S.Nbase)
+    NX_half = NZ // 2
+
+    om2 = S.om2
+    base = om2 * S.step3_invK2_full
+
+    out1 = (base * S.gamma[:, None]) * xp.array(-1.0j, dtype=xp.complex64)
+    out2 = (base * S.alfa[None, :]) * xp.array(1.0j, dtype=xp.complex64)
+
+    # kx == 0 is the special 1/GAMMA branch, not the 1/K2 one.
+    out1[:, 0] = (xp.array(-1.0j, dtype=xp.complex64) * om2[:, 0]) * S.step3_inv_gamma0
+    out2[:, 0] = _zero_c(xp)
+
+    S.uc_full[0, :NZ, :NX_half] = out1
+    S.uc_full[1, :NZ, :NX_half] = out2
+
+
 def _reconstruct_velocity_from_om2(S: DnsState) -> None:
     xp = S.xp
     Nbase = int(S.Nbase)
@@ -1585,9 +1882,47 @@ def _reconstruct_velocity_from_om2(S: DnsState) -> None:
     S.uc_full[1, :NZ, :NX_half] = out2
 
 
+def _dns_step3_mlx(S: DnsState) -> None:
+    """
+    CNAB2 vorticity update for MLX.
+
+    Same formula as the SciPy path, written functionally: MLX fuses the chain
+    into its own kernels, so the scratch-buffer reuse the other backends need
+    would only get in the way.
+    """
+    visc = float(S.visc)
+    dt = float(S.dt)
+    cnm1 = float(S.cnm1)
+
+    K2 = S.step3_K2
+    om2 = S.om2
+
+    fn = _compute_nonlinear_vorticity_term_mlx(S)
+
+    ARG = K2 * _np.float32(0.5 * visc * dt).item()
+    DEN = ARG + 1.0
+
+    c2 = _np.float32(0.5 * dt * (2.0 + cnm1)).item()
+    c3 = _np.float32(-0.5 * dt * cnm1).item()
+
+    num = om2 - om2 * ARG
+    num = num + fn * c2
+    num = num + S.fnm1 * c3
+
+    S.om2 = num / DEN
+    S.fnm1 = fn
+
+    _reconstruct_velocity_from_om2_mlx(S)
+    S.cnm1 = float(S.cn)
+
+
 def dns_step3(S: DnsState, fuse: bool = True) -> None:
     xp = S.xp
     global _STEP3_FUSED_KERNEL
+
+    if S.backend == "mlx":
+        _dns_step3_mlx(S)
+        return
     # Fast GPU path: mirror the native CUDA kernel by updating OM2/FNM1 and
     # reconstructing UC_full[0:2] from the new OM2 while it is still in a register.
     if S.backend == "gpu" and _cp is not None and fuse:
@@ -1909,6 +2244,29 @@ def dns_step_ls_imex_rk3(S: DnsState) -> None:
             dns_step2a(S)
         return
 
+    if S.backend == "mlx":
+        dt_f = float(S.dt)
+        visc_f = float(S.visc)
+        K2 = S.step3_K2
+        for stage in range(3):
+            a = float(alpha_vals[stage])
+            b = float(beta_vals[stage])
+            dns_step2b(S)
+            fn = _compute_nonlinear_vorticity_term_mlx(S)
+
+            rhs = 1.0 - K2 * _np.float32(b * dt_f * visc_f).item()
+            num = S.om2 * rhs
+            num = num + fn * _np.float32(a * dt_f).item()
+            num = num + S.fnm1 * _np.float32(b * dt_f).item()
+            den = K2 * _np.float32(a * dt_f * visc_f).item() + 1.0
+
+            S.om2 = num / den
+            S.fnm1 = fn
+
+            _reconstruct_velocity_from_om2_mlx(S)
+            dns_step2a(S)
+        return
+
     dt = xp.float32(S.dt)
     visc = xp.float32(S.visc)
     K2 = S.step3_K2
@@ -2018,10 +2376,11 @@ def dns_step2a(S: DnsState) -> None:
             (UC, _np.int32(N), _np.int32(NZ_full), _np.int32(NK_full)),
         )
     else:
+        zc = _zero_c(xp)
         hi_start = N // 2
         hi_end = min(3 * N // 4, NK_full - 1)
         if hi_start <= hi_end:
-            UC[0:2, :, hi_start:hi_end + 1] = xp.complex64(0.0 + 0.0j)
+            UC[0:2, :, hi_start:hi_end + 1] = zc
 
         halfN = N // 2
         k_max = min(halfN, NK_full)
@@ -2030,13 +2389,19 @@ def dns_step2a(S: DnsState) -> None:
             z_mid_end = N
             z_top_start = N
             z_top_end = N + halfN
+            # Source and destination z-bands do not overlap, so the read-then-write
+            # is safe whether the RHS is a NumPy view or an MLX copy.
             UC[0:2, z_top_start:z_top_end, :k_max] = UC[0:2, z_mid_start:z_mid_end, :k_max]
-            UC[0:2, z_mid_start:z_mid_end, :k_max] = xp.complex64(0.0 + 0.0j)
+            UC[0:2, z_mid_start:z_mid_end, :k_max] = zc
 
     # Inverse FFT UC_full → UR_full
     vfft_full_inverse_uc_full_to_ur_full(S)
 
     if not S.populate_compact_ur:
+        # STEP2A closes out every step (and every RK3 stage), so this is the
+        # natural point to realize MLX's lazy graph. Without it the graph would
+        # grow without bound and the step timings would be meaningless.
+        S.eval_state()
         return
 
     off_x = (NX_full - NX) // 2
@@ -2099,6 +2464,8 @@ def dns_step2a(S: DnsState) -> None:
         S.ur[:, :, 1] = S.ur_full[1, off_z:off_z + N, off_x:off_x + N]
         S.ur[:, :, 2] = 0.0
 
+    S.eval_state()
+
 # ---------------------------------------------------------------------------
 # NEXTDT — CFL based timestep
 # ---------------------------------------------------------------------------
@@ -2114,6 +2481,12 @@ def compute_cflm(S: DnsState):
     if S.backend == "gpu" and _cflm_max_abs_sum is not None:
         CFLM = _cflm_max_abs_sum(u, w, xp.float32(S.inv_dx))  # GPU scalar (already scaled)
         return CFLM
+
+    if S.backend == "mlx":
+        # Reduce on-device, then pull the single scalar back to the host so the
+        # timestep update can stay in plain Python (no device scalars for MLX).
+        peak = xp.max(xp.abs(u) + xp.abs(w))
+        return float(peak.item()) * S.inv_dx
 
     # CPU (or fallback): keep current code path
     tmp = S.cfl_tmp[:NZ3D2, :NX3D2]
@@ -2633,7 +3006,7 @@ def dns_kinetic(S: DnsState) -> None:
     w = S.ur_full[1, :, :]
 
     ke = xp.sqrt(u * u + w * w)
-    S.ur_full[2, :, :] = ke.astype(xp.float32)
+    S.ur_full[2, :, :] = _astype32(ke, xp.float32)
 
 
 def _spectral_band_to_phys_full_grid(S: DnsState, band) -> any:
@@ -2647,13 +3020,15 @@ def _spectral_band_to_phys_full_grid(S: DnsState, band) -> any:
     NX_half = N // 2
     NZ = N
 
+    zc = _zero_c(xp)
+
     uc_tmp = xp.zeros((NZ_full, NK_full), dtype=xp.complex64)
     uc_tmp[:NZ, :NX_half] = band
 
     hi_start = N // 2
     hi_end = min(3 * N // 4, NK_full - 1)
     if hi_start <= hi_end:
-        uc_tmp[:, hi_start:hi_end + 1] = xp.complex64(0.0 + 0.0j)
+        uc_tmp[:, hi_start:hi_end + 1] = zc
 
     halfN = N // 2
     k_max = min(halfN, NK_full)
@@ -2665,16 +3040,18 @@ def _spectral_band_to_phys_full_grid(S: DnsState, band) -> any:
         z_top_end = N + halfN
 
         uc_tmp[z_top_start:z_top_end, :k_max] = uc_tmp[z_mid_start:z_mid_end, :k_max]
-        uc_tmp[z_mid_start:z_mid_end, :k_max] = xp.complex64(0.0 + 0.0j)
+        uc_tmp[z_mid_start:z_mid_end, :k_max] = zc
 
     z_mid = NZ
     if z_mid < NZ_full:
-        uc_tmp[z_mid, :NX_half] = xp.complex64(0.0 + 0.0j)
+        uc_tmp[z_mid, :NX_half] = zc
 
     fft = S.fft
 
     if S.backend == "cpu":
         phys = fft.irfft2(uc_tmp, s=(NZ_full, NX_full), axes=(0, 1), overwrite_x=True, workers=S.fft_workers, norm='forward')
+    elif S.backend == "mlx":
+        phys = fft.irfft2(uc_tmp, s=(NZ_full, NX_full), axes=(0, 1), norm='forward')
     else:
         phys = fft.irfft2(uc_tmp, s=(NZ_full, NX_full), axes=(0, 1), overwrite_x=True, norm='forward')
 
@@ -2694,16 +3071,16 @@ def dns_stream_func(S: DnsState) -> None:
     NX_half = N // 2
     NZ = N
 
-    alfa_1d = S.alfa.astype(xp.float32)
-    gamma_1d = S.gamma.astype(xp.float32)
+    alfa_1d = _astype32(S.alfa, xp.float32)
+    gamma_1d = _astype32(S.gamma, xp.float32)
 
     ax = alfa_1d[None, :]
     gz = gamma_1d[:, None]
 
     K2 = ax * ax + gz * gz
-    K2 = K2 + xp.float32(1.0e-30)
+    K2 = K2 + _f32(xp, 1.0e-30)
 
-    phi_hat = S.om2 / K2
+    phi_hat = _div_by_real(xp, S.om2, K2)
     phys = _spectral_band_to_phys_full_grid(S, phi_hat)
     S.ur_full[2, :, :] = phys
 
@@ -2725,9 +3102,10 @@ def dns_phi_phys(S: DnsState) -> None:
 
     k2 = kx * kx + kz * kz
     div = kx * u_hat + kz * v_hat
-    denom = xp.where(k2 > xp.float32(0.0), k2, xp.float32(1.0))
-    phi_hat = -1j * div / denom
-    phi_hat = xp.where(k2 > xp.float32(0.0), phi_hat, xp.complex64(0.0 + 0.0j))
+    zero_f = _f32(xp, 0.0)
+    denom = xp.where(k2 > zero_f, k2, _f32(xp, 1.0))
+    phi_hat = _div_by_real(xp, -1j * div, denom)
+    phi_hat = xp.where(k2 > zero_f, phi_hat, _zero_c(xp))
 
     phys = fft.irfft2(
         phi_hat,
@@ -2735,7 +3113,7 @@ def dns_phi_phys(S: DnsState) -> None:
         axes=(0, 1),
         norm="forward",
     )
-    S.ur_full[2, :, :] = xp.asarray(phys, dtype=xp.float32)
+    S.ur_full[2, :, :] = _astype32(xp.asarray(phys), xp.float32)
 
 
 # ---------------------------------------------------------------------------
@@ -2747,7 +3125,7 @@ def run_dns(
     K0: float = 10.0,
     STEPS: int = 2,
     CFL: float = 0.75,
-    backend: Literal["cpu", "gpu", "auto"] = "auto",
+    backend: Backend = "auto",
     start_spectrum: SPECTRUM = "KM3",
     UPDATE: int = 100,
     method: TimeStepper = "CNAB2",
@@ -2786,9 +3164,13 @@ def run_dns(
         start_spectrum=start_spectrum,
         populate_compact_ur=False,
     )
-    print(f" effective = {S.backend} (xp = {'cupy' if S.backend == 'gpu' else 'scipy'})")
+    xp_label = {"gpu": "cupy", "mlx": "mlx.core"}.get(S.backend, "scipy")
+    print(f" effective = {S.backend} (xp = {xp_label})")
     elapsed = time.perf_counter() - start
     print(f" DNS INITIALIZATION took {elapsed:.3f} seconds")
+
+    if S.backend == "mlx":
+        print(f" MLX active memory ≈ {_mx.get_active_memory() / (1024 * 1024):.2f} MiB")
 
     if S.backend == "gpu" and _cp is not None and free_before is not None:
         _cp.cuda.Device().synchronize()
@@ -2880,7 +3262,7 @@ def compare_time_steppers(
     K0: float,
     STEPS: int,
     CFL: float,
-    backend: Literal["cpu", "gpu", "auto"],
+    backend: Backend,
     start_spectrum: SPECTRUM,
     UPDATE: int,
 ) -> None:
@@ -2910,7 +3292,7 @@ def main():
     STEPS = int(args[3]) if len(args) > 3 else 1001
     CFL = float(args[4]) if len(args) > 4 else 0.25
 
-    BACK = cast(Literal["cpu", "gpu", "auto"], args[5].lower()) if len(args) > 5 else "auto"
+    BACK = cast(Backend, args[5].lower()) if len(args) > 5 else "auto"
     UPDATE = int(float(args[6])) if len(args) > 6 else 100
     START_SPECTRUM = cast(SPECTRUM, args[7].upper()) if len(args) > 7 else "KM3"
     METHOD = cast(TimeStepper, args[8].upper()) if len(args) > 8 else "CNAB2"

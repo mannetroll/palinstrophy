@@ -1,4 +1,4 @@
-# 2D Turbulence Simulation (SciPy / CuPy)
+# 2D Turbulence Simulation (SciPy / CuPy / MLX)
 
 Source code: https://github.com/mannetroll/palinstrophy
 
@@ -8,6 +8,7 @@ It supports:
 
 - **SciPy / NumPy** for CPU runs
 - **CuPy** (optional) for GPU acceleration on CUDA devices (e.g. RTX 3090)
+- **MLX** for GPU acceleration on Apple Silicon via Metal (e.g. M1)
 
 ## One-liner CPU/SciPy (macOS)
 
@@ -105,12 +106,12 @@ Valid seed values are 1 through 5010.
 
 Where:
 
-- N          — grid size (e.g. 512)
+- N          — grid size (defaults to 2048 on CuPy, 1024 on MLX, 512 on SciPy)
 - K0         — peak wavenumber of the energy spectrum
 - Re         — Reynolds number (e.g. 10000)
 - STEPS      — max steps before reset/stop
 - CFL        — target CFL number (defaults to 2.0)
-- BACKEND    — "cpu", "gpu", or "auto"
+- BACKEND    — "cpu", "gpu" (CUDA), "mlx" (Apple Silicon), or "auto"
 - UPDATE     — DNS steps per GUI timer update (defaults to 5)
 - SPECTRUM   — "KM3" or "PAO" (optional, defaults to "KM3")
 - ITERATIONS — total iterations before the GUI quits; if supplied, put SPECTRUM before it
@@ -136,7 +137,7 @@ Where:
 - K0      — peak wavenumber of the energy spectrum
 - STEPS   — number of time steps
 - CFL     — target CFL number (e.g. 0.75)
-- BACKEND — "cpu", "gpu", or "auto"
+- BACKEND — "cpu", "gpu" (CUDA), "mlx" (Apple Silicon), or "auto"
 - UPDATE  — print/update cadence in DNS steps
 - SPECTRUM — "KM3" or "PAO" (optional, defaults to "KM3")
 - METHOD  — "CNAB2", "LS_IMEX_RK3", or "CHECK" (optional, defaults to "CNAB2")
@@ -167,7 +168,10 @@ fields plus energy and eddy-turnover-time differences. Use a small CFL when
 checking method agreement; the methods are not bitwise identical, but the
 field differences should shrink as the timestep is reduced.
 
-    # Auto-select backend (GPU if CuPy + CUDA are available)
+    # Apple Silicon GPU run (MLX / Metal)
+    $ uv run sim 1024 10000 10 1001 0.75 mlx 100 KM3
+
+    # Auto-select backend (CuPy if CUDA is available, else MLX, else SciPy)
     $ uv run sim 256 10000 10 1001 0.75 auto 100 KM3
 
 
@@ -207,6 +211,76 @@ Or let the backend auto-detect:
 ## The DNS with CuPy (9216 x 9216) Dedicated GPU memory 20GB of 24GB
 
 ![CuPy](https://raw.githubusercontent.com/mannetroll/palinstrophy/v0.1.5/images/N9216.png)
+
+
+## Enabling GPU with MLX (Apple Silicon)
+
+MLX is installed automatically by `uv sync` on Apple Silicon — it is declared with
+the marker `sys_platform == 'darwin' and platform_machine == 'arm64'`, so it is
+skipped on every other platform. Nothing else is required; Metal ships with macOS.
+
+1. Verify that MLX sees the GPU:
+
+       $ uv run python -c "import mlx.core as mx; print(mx.device_info()['device_name'])"
+
+2. Run in MLX mode:
+
+       $ uv run sim 1024 10000 10 1001 0.75 mlx 100 KM3
+
+Or let the backend auto-detect (CuPy first, then MLX, then SciPy):
+
+       $ uv run sim 1024 10000 10 1001 0.75 auto 100 KM3
+
+### Measured speedup (Apple M1 Max, CNAB2, KM3, 201 steps)
+
+| N | SciPy FPS | MLX FPS | Speedup |
+|---|---|---|---|
+| 256 | 752.7 | 1267.0 | 1.7x |
+| 512 | 197.8 | 595.8 | 3.0x |
+| 1024 | 65.8 | 258.5 | 3.9x |
+| 2048 | 13.8 | 68.2 | 4.9x |
+
+The advantage grows with grid size, as the GPU gets enough work to hide launch
+overhead.
+
+### Grid-size limit: keep 3N/2 at or below 4096
+
+MLX's Metal FFT has a fast single-kernel path for transform lengths up to **4096**.
+Past that it falls back to a path roughly **40x slower** — measured on an M1 Max, an
+`rfft2` of 8 planes takes 17.7 ms at size 4096 and 721 ms at size 4104.
+
+This solver transforms the 3/2 de-aliasing grid, so the transform length is `3N/2`
+and the usable limit is **N <= 2730**. In practice:
+
+| N | 3/2 grid | MLX path |
+|---|---|---|
+| 2048 | 3072 | fast |
+| 2560 | 3840 | fast |
+| 3072 | 4608 | slow — use `cpu` instead |
+
+The solver prints a warning when you cross the threshold. Above it the SciPy
+backend is the faster choice.
+
+### Notes on the MLX backend
+
+MLX differs from NumPy and CuPy in ways that shaped the port:
+
+- **Slices are copies, not views.** The `out=` buffer reuse that the SciPy and CuPy
+  paths rely on cannot work, so the MLX paths are written functionally and let MLX
+  fuse the chain itself.
+- **No float64 on Metal.** The float64 reductions (`flow_eddy_metrics`, the energy
+  spectrum) form their float32 inputs on-device and reduce on the host. Unified
+  memory makes that handoff a view rather than a copy.
+- **Lazy evaluation.** Each step ends with an explicit `mx.eval` so the graph stays
+  bounded; memory is flat at 230 MiB over 600 steps at N=1024.
+- **Complex-by-real division squares the divisor.** MLX evaluates `complex / real`
+  as a full complex quotient, so a regulariser like `1e-30` underflows float32 to
+  zero and yields NaN. Those sites scale by the reciprocal instead.
+
+MLX results track the SciPy reference to float32 precision: relative L2 differences
+of ~1e-5 after 50 steps, and bulk statistics (energy, eddy-turnover time) agreeing
+to ~1e-7. The fields diverge slowly with step count, as expected for a chaotic flow
+integrated in single precision.
 
 
 ## Profiling

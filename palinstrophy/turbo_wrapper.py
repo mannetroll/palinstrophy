@@ -1,7 +1,7 @@
 # turbo_wrapper.py
 from pathlib import Path
 from time import perf_counter
-from typing import Union, Literal
+from typing import Union
 import numpy as np
 import math
 import os
@@ -36,7 +36,7 @@ class DnsSimulator:
         re: float = 1000.0,
         k0: float = 15.0,
         cfl: float = 2.0,
-        backend: Literal["cpu", "gpu", "auto"] = "auto",
+        backend: dns_all.Backend = "auto",
         start_spectrum: dns_all.SPECTRUM = "KM3",
         method: dns_all.TimeStepper = "LS_IMEX_RK3",
     ):
@@ -179,7 +179,7 @@ class DnsSimulator:
                 Re=self.re,
                 K0=self.k0,
                 CFL=self.cfl,
-                backend="auto",
+                backend=self.backend,
                 seed=self.seed,
                 skip_pao=skip_pao,
                 start_spectrum=self.start_spectrum,
@@ -256,7 +256,7 @@ class DnsSimulator:
                 Re=self.re,
                 K0=self.k0,
                 CFL=self.cfl,
-                backend="auto",
+                backend=self.backend,
                 seed=seed,
                 start_spectrum=self.start_spectrum,
             )
@@ -336,6 +336,37 @@ class DnsSimulator:
         pix = cp.where(is_const, cp.uint8(128), pix)
         return pix
 
+    def _float_to_pixels_mlx(self, field_mx) -> np.ndarray:
+        """
+        MLX path: normalize→uint8 on the Metal GPU, then hand the uint8 buffer
+        to the host. Unified memory makes that last step a view, so only the
+        normalization is worth keeping on-device.
+        """
+        import mlx.core as mx  # type: ignore
+
+        fmin = mx.min(field_mx)
+        fmax = mx.max(field_mx)
+        rng = fmax - fmin
+        is_const = mx.abs(rng) <= 1.0e-12
+
+        denom = mx.where(is_const, mx.array(1.0, dtype=mx.float32), rng)
+        norm = (field_mx - fmin) / denom
+        pixf = mx.clip(1.0 + norm * 254.0, 1.0, 255.0)
+
+        pix = mx.where(is_const, mx.array(128, dtype=mx.uint8), pixf.astype(mx.uint8))
+        mx.eval(pix)
+        return np.asarray(pix)
+
+    def _field_to_pixels(self, field) -> np.ndarray:
+        """Normalize one full-grid field to uint8, on-device where that helps."""
+        backend = self.state.backend
+        if backend == "gpu":
+            import cupy as cp  # type: ignore
+            return cp.asnumpy(self._float_to_pixels_gpu(field))
+        if backend == "mlx":
+            return self._float_to_pixels_mlx(field)
+        return self._float_to_pixels(np.asarray(field))
+
     # ------------------------------------------------------------------
     def _snapshot_u8_cp(self, comp: int):
         """GPU-only: return uint8 pixels on the device (no host transfer)."""
@@ -398,13 +429,7 @@ class DnsSimulator:
         if idx < 0 or idx > 2:
             idx = 0
 
-        if S.backend == "gpu":
-            import cupy as cp  # type: ignore
-            pix_cp = self._snapshot_u8_cp(comp)
-            return cp.asnumpy(pix_cp)
-        else:
-            field = np.asarray(S.ur_full[idx, :, :])
-            return self._float_to_pixels(field)
+        return self._field_to_pixels(S.ur_full[idx, :, :])
 
     # ------------------------------------------------------------------
     def make_pixels(self, comp: int = 1) -> np.ndarray:
@@ -438,38 +463,17 @@ class DnsSimulator:
         elif var == self.VAR_ENERGY:
             # Use dns_all kinetic helper: fills ur_full[2,:,:]
             dns_all.dns_kinetic(S)
-            if S.backend == "gpu":
-                import cupy as cp  # type: ignore
-                field_cp = S.ur_full[2, :, :]
-                pix_cp = self._float_to_pixels_gpu(field_cp)
-                plane = cp.asnumpy(pix_cp)
-            else:
-                field = np.asarray(S.ur_full[2, :, :])
-                plane = self._float_to_pixels(field)
+            plane = self._field_to_pixels(S.ur_full[2, :, :])
 
         elif var == self.VAR_OMEGA:
             # Use dns_all omega→physical helper: fills ur_full[2,:,:]
             dns_all.dns_om2_phys(S)
-            if S.backend == "gpu":
-                import cupy as cp  # type: ignore
-                field_cp = S.ur_full[2, :, :]
-                pix_cp = self._float_to_pixels_gpu(field_cp)
-                plane = cp.asnumpy(pix_cp)
-            else:
-                field = np.asarray(S.ur_full[2, :, :])
-                plane = self._float_to_pixels(field)
+            plane = self._field_to_pixels(S.ur_full[2, :, :])
 
         elif var == self.VAR_STREAM:
             # Use dns_all stream-function helper: fills ur_full[2,:,:]
             dns_all.dns_stream_func(S)
-            if S.backend == "gpu":
-                import cupy as cp  # type: ignore
-                field_cp = S.ur_full[2, :, :]
-                pix_cp = self._float_to_pixels_gpu(field_cp)
-                plane = cp.asnumpy(pix_cp)
-            else:
-                field = np.asarray(S.ur_full[2, :, :])
-                plane = self._float_to_pixels(field)
+            plane = self._field_to_pixels(S.ur_full[2, :, :])
 
         else:
             plane = self._snapshot(1)

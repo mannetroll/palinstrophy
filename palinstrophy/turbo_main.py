@@ -7,7 +7,7 @@ import os
 from pathlib import Path
 import sys
 import time
-from typing import Optional, Literal, cast, get_args
+from typing import Optional, cast, get_args
 
 from PySide6.QtCore import QEvent, QPoint, QSize, QTimer, Qt, QStandardPaths
 from PySide6.QtGui import QColor, QIcon, QImage, QPixmap, QFontDatabase, QPalette, qRgb, QKeySequence, QShortcut, QPainter
@@ -33,6 +33,20 @@ from palinstrophy.turbo_wrapper import DnsSimulator
 
 FUSION = "Fusion"
 RESTART_FILE = "restart.nc"
+
+
+def _to_numpy(arr) -> np.ndarray:
+    """
+    Host NumPy array for a field held on any backend.
+
+    CuPy needs an explicit device→host copy; MLX shares unified memory with the
+    host, so np.asarray is a (writeable) view and costs nothing.
+    """
+    to_host = getattr(arr, "get", None)
+    if callable(to_host):  # CuPy
+        return np.asarray(to_host())
+    return np.asarray(arr)
+
 
 GUI_QSS = """
 QMainWindow, QWidget {
@@ -721,18 +735,19 @@ class MainWindow(QMainWindow):
         # Ensure single-key shortcuts work regardless of which widget has focus (Win11 combos eat 'C')
         _setup_shortcuts(self)
 
-        # window setup
-        import importlib.util
-
+        # window setup — name the backend the solver actually runs on
         self.title_backend = "(SciPy)"
-        if importlib.util.find_spec("cupy") is not None:
-            import cupy as cp
+        if self.sim.state.backend == "gpu":
+            self.title_backend = "(CuPy)"
             try:
+                import cupy as cp
                 props = cp.cuda.runtime.getDeviceProperties(0)
-                gpu_name = props["name"].decode(errors="replace")
-                self.title_backend = f"(CuPy) {gpu_name}"
-            except (RuntimeError, OSError, ValueError, IndexError):
+                self.title_backend = f"(CuPy) {props['name'].decode(errors='replace')}"
+            except (ImportError, RuntimeError, OSError, ValueError, IndexError):
                 pass
+        elif self.sim.state.backend == "mlx":
+            device_name = dns_all.mlx_device_name()
+            self.title_backend = f"(MLX) {device_name}" if device_name else "(MLX)"
 
         window_title = f"2D Turbulence {self.title_backend} © Mannetroll"
         self.setWindowTitle(window_title)
@@ -917,8 +932,9 @@ class MainWindow(QMainWindow):
             'u', 'v', 'kinetic', 'omega', 'stream'
         """
         field = self._get_full_field_raw(variable)
-        S = self.sim.state
-        return (field.get() if S.backend == "gpu" else field).astype(np.float32)
+        # astype() copies, so callers get a private host array rather than a
+        # view into device memory (MLX hands out writeable views).
+        return _to_numpy(field).astype(np.float32)
 
     def _update_run_buttons(self) -> None:
         """Enable/disable Start/Stop depending on the timer state."""
@@ -975,7 +991,8 @@ class MainWindow(QMainWindow):
         """
         import matplotlib.pyplot as plt
 
-        # Detect array module (CuPy or NumPy)
+        # Detect array module (CuPy or NumPy). MLX arrays go the NumPy route:
+        # the spectrum is float64 throughout and Metal has no float64.
         xp = np
         try:
             import cupy
@@ -983,6 +1000,10 @@ class MainWindow(QMainWindow):
                 xp = cupy
         except Exception:
             pass
+
+        if xp is np:
+            u = _to_numpy(u)
+            v = _to_numpy(v)
 
         u = xp.asarray(u, dtype=xp.float64)
         v = xp.asarray(v, dtype=xp.float64)
@@ -1409,8 +1430,8 @@ class MainWindow(QMainWindow):
         S = self.sim.state
         xp = S.xp
 
-        # 5) overwrite spectral arrays
-        if S.backend == "gpu":
+        # 5) overwrite spectral arrays (device backends need the host data uploaded)
+        if S.backend in ("gpu", "mlx"):
             S.uc = xp.asarray(uc_data)
             S.om2 = xp.asarray(om2_data)
             S.fnm1 = xp.asarray(fnm1_data)
@@ -1440,7 +1461,7 @@ class MainWindow(QMainWindow):
 
         # 6b) scatter compact uc (NZ, NK, 3) into full grid uc_full (3, NZ_full, NK_full)
         #     dns_step2a reads from uc_full, so it must reflect the loaded uc.
-        S.uc_full[...] = 0
+        S.uc_full[:] = 0  # `[:]` rather than `[...]`: MLX rejects Ellipsis indexing
         NK = S.NK
         S.uc_full[:, :S.NZ, :NK] = xp.transpose(S.uc, (2, 0, 1))
 
@@ -1950,7 +1971,12 @@ class MainWindow(QMainWindow):
         u = S.ur_full[0]
         v = S.ur_full[1]
 
-        velocity_sq_sum = xp.sum(u * u, dtype=xp.float64) + xp.sum(v * v, dtype=xp.float64)
+        if S.backend == "mlx":
+            # Metal has no float64: square on-device, accumulate on the host.
+            # Unified memory makes that handoff a view rather than a copy.
+            velocity_sq_sum = _to_numpy(u * u + v * v).sum(dtype=np.float64)
+        else:
+            velocity_sq_sum = xp.sum(u * u, dtype=xp.float64) + xp.sum(v * v, dtype=xp.float64)
         # Unit-density kinetic energy integral over the periodic domain.
         domain_area = (2.0 * math.pi) ** 2
         value = 0.5 * domain_area * velocity_sq_sum / u.size
@@ -2329,7 +2355,7 @@ def Re_from_N_K0(N, K0):
 
 
 # ----------------------------------------------------------------------
-Backend = Literal["cpu", "gpu", "auto"]
+Backend = dns_all.Backend  # "cpu" | "gpu" | "mlx" | "auto"
 
 
 def _parse_mov_arg(args: list[str]) -> int:
@@ -2354,18 +2380,14 @@ def main() -> None:
 
     # Decide backend early so we can choose a sensible default N
     backend_str = args[5].lower() if len(args) > 5 else "auto"
-    if backend_str not in ("cpu", "gpu", "auto"):
+    if backend_str not in get_args(dns_all.Backend):
         backend_str = "auto"
     backend: Backend = cast(Backend, backend_str)
 
-    # Default N depends on effective backend:
-    if backend == "cpu":
-        default_N = 512
-    elif backend == "gpu":
-        default_N = 2048
-    else:
-        import importlib.util
-        default_N = 2048 if importlib.util.find_spec("cupy") is not None else 512
+    # Default N depends on the backend actually selected. MLX runs ~4x the SciPy
+    # step rate on Apple Silicon, so 1024 there is about as interactive as 512
+    # on the CPU.
+    default_N = {"gpu": 2048, "mlx": 1024}.get(dns_all.effective_backend(backend), 512)
 
     N = int(args[0]) if len(args) > 0 else default_N
     K0 = float(args[1]) if len(args) > 1 else 5
