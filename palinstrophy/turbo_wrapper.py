@@ -52,6 +52,7 @@ class DnsSimulator:
         )
         self.backend = backend
         self.max_steps = 5000
+        self._frame_stats: tuple[float, float] | None = None
 
         # --- ONLY: max SciPy FFT workers on CPU ---
         self.fft_workers = 4
@@ -71,6 +72,10 @@ class DnsSimulator:
                 backend=self.backend,
                 seed=self.seed,
                 start_spectrum=self.start_spectrum,
+                # The GUI renders from ur_full and nothing reads the compact ur
+                # mirror, whose refill costs ~1.6 ms/step at N=1024 (STEP2A runs
+                # it once per RK3 stage).
+                populate_compact_ur=False,
             )
 
             self.nx = int(self.state.NZ_full)  # "height"
@@ -183,6 +188,7 @@ class DnsSimulator:
                 seed=self.seed,
                 skip_pao=skip_pao,
                 start_spectrum=self.start_spectrum,
+                populate_compact_ur=False,
             )
 
         # DEBUG: print full-grid sizes
@@ -259,6 +265,7 @@ class DnsSimulator:
                 backend=self.backend,
                 seed=seed,
                 start_spectrum=self.start_spectrum,
+                populate_compact_ur=False,
             )
 
         self.nx = int(self.state.NZ_full)
@@ -341,6 +348,10 @@ class DnsSimulator:
         MLX path: normalize→uint8 on the Metal GPU, then hand the uint8 buffer
         to the host. Unified memory makes that last step a view, so only the
         normalization is worth keeping on-device.
+
+        The image mean/std the GUI needs for its display normalization are
+        reduced here too, while the pixels are still on the GPU — scanning them
+        twice on the host costs ~4 ms per frame at N=1024.
         """
         import mlx.core as mx  # type: ignore
 
@@ -354,11 +365,19 @@ class DnsSimulator:
         pixf = mx.clip(1.0 + norm * 254.0, 1.0, 255.0)
 
         pix = mx.where(is_const, mx.array(128, dtype=mx.uint8), pixf.astype(mx.uint8))
-        mx.eval(pix)
+
+        # Two-pass mean/std in float32, matching what NumPy computes host-side.
+        pix_f = pix.astype(mx.float32)
+        mean = mx.mean(pix_f)
+        std = mx.sqrt(mx.mean((pix_f - mean) * (pix_f - mean)))
+
+        mx.eval(pix, mean, std)
+        self._frame_stats = (float(mean.item()), float(std.item()))
         return np.asarray(pix)
 
     def _field_to_pixels(self, field) -> np.ndarray:
         """Normalize one full-grid field to uint8, on-device where that helps."""
+        self._frame_stats = None
         backend = self.state.backend
         if backend == "gpu":
             import cupy as cp  # type: ignore
@@ -366,6 +385,17 @@ class DnsSimulator:
         if backend == "mlx":
             return self._float_to_pixels_mlx(field)
         return self._float_to_pixels(np.asarray(field))
+
+    def take_frame_stats(self) -> tuple[float, float] | None:
+        """
+        Mean and standard deviation of the most recent frame, when the backend
+        already reduced them while building it. Consumed on read, so a caller
+        can never pair stats with a different image; None means "compute them
+        yourself".
+        """
+        stats = self._frame_stats
+        self._frame_stats = None
+        return stats
 
     # ------------------------------------------------------------------
     def _snapshot_u8_cp(self, comp: int):
@@ -487,6 +517,7 @@ class DnsSimulator:
         Return an 8-bit contiguous array so the GUI can push it straight into a QImage.
         """
         S = self.state
+        self._frame_stats = None  # only a backend that reduces them refills this
 
         if S.backend == "gpu":
             import cupy as cp  # type: ignore

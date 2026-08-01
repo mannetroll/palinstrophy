@@ -65,6 +65,19 @@ Backend = Literal["cpu", "gpu", "mlx", "auto"]
 MLX_FFT_FAST_PATH_MAX = 4096
 
 
+def echo_command(program: str, *fields) -> None:
+    """
+    Echo a fully-resolved command line, so a log tells you how to repeat the run
+    even when it was started with defaults. The PAO seed is only part of the
+    command when it was pinned; otherwise each run draws a fresh one (the chosen
+    value is printed by the initialization banner as "PAO seed in").
+    """
+    seed = os.environ.get(SCIPYTURBO_SEED_ENV)
+    prefix = f"{SCIPYTURBO_SEED_ENV}={seed} " if seed else ""
+    args = " ".join(f"{f:.10g}" if isinstance(f, float) else str(f) for f in fields)
+    print(f"\r\n$ {prefix}uv run {program} {args}")
+
+
 def pao_seed_from_env(default: int | None = None) -> int | None:
     raw = os.environ.get(SCIPYTURBO_SEED_ENV)
     if raw is None or raw.strip() == "":
@@ -2687,46 +2700,61 @@ def _compute_energy_spectrum_omega_bins_gpu(S: DnsState, nbins: int, r_max: floa
     )
 
 
-def _compute_energy_spectrum_omega_bins_cpu(S: DnsState, nbins: int, r_max: float, k_nyq: float) -> SpectrumSample:
-    om2 = _np.asarray(S.om2)
+def _spectrum_bin_geometry_cpu(S: DnsState, nbins: int, r_max: float, k_nyq: float):
+    """
+    Shell-binning geometry for the (NZ, NX_half) half-plane: the bin index of
+    every mode, the constant weight each mode contributes with, and the per-bin
+    mode counts. All of it is fixed for a given grid, so it is built once and
+    cached on the state — the GUI samples the spectrum on every rendered frame.
+    """
+    key = (int(S.Nbase), int(S.NX_full), int(S.NZ_full), nbins, r_max, k_nyq)
+    cached = getattr(S, "_spectrum_bin_geometry", None)
+    if cached is not None and cached[0] == key:
+        return cached[1], cached[2], cached[3]
 
     nz = int(S.Nbase)
     nx_half = int(S.Nbase) // 2
     fft_scale2 = float(int(S.NX_full) * int(S.NZ_full)) ** 2
 
-    esum = _np.zeros((nbins,), dtype=_np.float64)
-    count = _np.zeros((nbins,), dtype=_np.int64)
-
     kx = _np.arange(nx_half, dtype=_np.float64)
-    kx2 = kx * kx
     weight = _np.ones((nx_half,), dtype=_np.float64)
     if nx_half > 1:
         weight[1:] = 2.0
 
-    for z in range(nz):
-        kz = z if z < nz // 2 else z - nz
-        k2 = kx2 + float(kz * kz)
-        mask = k2 > 0.0
+    # Signed z wavenumbers of the full FFT axis: 0, 1, … nz/2-1, -nz/2, … -1
+    kz = _np.arange(nz, dtype=_np.float64)
+    kz = _np.where(kz < nz // 2, kz, kz - nz)
 
-        radii = _np.sqrt(k2[mask]) / k_nyq
-        bins = _np.floor((radii / r_max) * float(nbins)).astype(_np.int64)
-        _np.clip(bins, 0, nbins - 1, out=bins)
+    k2 = (kx * kx)[None, :] + (kz * kz)[:, None]
+    keep = k2 > 0.0                                  # drops the k=0 mode only
+    w = _np.where(keep, weight[None, :], 0.0)
 
-        omega = om2[z, mask]
-        p = (
-            omega.real.astype(_np.float64) ** 2
-            + omega.imag.astype(_np.float64) ** 2
-        ) / k2[mask]
-        row_weight = weight[mask]
-        esum += _np.bincount(bins, weights=p * row_weight * fft_scale2, minlength=nbins)
-        count += _np.bincount(bins, weights=row_weight, minlength=nbins).astype(_np.int64)
+    bins = _np.floor((_np.sqrt(k2) / k_nyq / r_max) * float(nbins)).astype(_np.int64)
+    _np.clip(bins, 0, nbins - 1, out=bins)
+    bins_flat = bins.ravel()
+
+    # |ω̂|² is all that changes between samples; fold everything else into one
+    # per-mode factor: weight / k² scaled to the full physical-grid FFT.
+    factor = (w / _np.where(keep, k2, 1.0) * fft_scale2).ravel()
+    count = _np.bincount(bins_flat, weights=w.ravel(), minlength=nbins).astype(_np.int32)
+
+    S._spectrum_bin_geometry = (key, bins_flat, factor, count)
+    return bins_flat, factor, count
+
+
+def _compute_energy_spectrum_omega_bins_cpu(S: DnsState, nbins: int, r_max: float, k_nyq: float) -> SpectrumSample:
+    bins_flat, factor, count = _spectrum_bin_geometry_cpu(S, nbins, r_max, k_nyq)
+
+    om2 = _np.asarray(S.om2)
+    power = om2.real.astype(_np.float64) ** 2 + om2.imag.astype(_np.float64) ** 2
+    esum = _np.bincount(bins_flat, weights=power.ravel() * factor, minlength=nbins)
 
     return SpectrumSample(
         nbins=nbins,
         r_max=r_max,
         k_nyq=k_nyq,
         energy=esum,
-        count=count.astype(_np.int32, copy=False),
+        count=count.copy(),  # callers own their sample; the cache stays clean
     )
 
 
@@ -3296,6 +3324,8 @@ def main():
     UPDATE = int(float(args[6])) if len(args) > 6 else 100
     START_SPECTRUM = cast(SPECTRUM, args[7].upper()) if len(args) > 7 else "KM3"
     METHOD = cast(TimeStepper, args[8].upper()) if len(args) > 8 else "CNAB2"
+
+    echo_command("sim", N, Re, K0, STEPS, CFL, BACK, UPDATE, START_SPECTRUM, METHOD)
 
     run_dns(N=N, Re=Re, K0=K0, STEPS=STEPS, CFL=CFL, backend=BACK, start_spectrum=START_SPECTRUM, UPDATE=UPDATE, method=METHOD)
 

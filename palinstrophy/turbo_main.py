@@ -2006,7 +2006,9 @@ class MainWindow(QMainWindow):
         FPS = steps / elapsed if elapsed > 0 else float("inf")
         U, L, TAU_L = self.sim.state.flow_eddy_metrics()
         T_OVER_TAU_L = TIME / TAU_L if TAU_L > 0.0 else float("nan")
-        E_J = self.energy_joules()
+        # E = ½·A·⟨u²+v²⟩, and flow_eddy_metrics has already reduced ⟨u²+v²⟩
+        # into U = sqrt(⟨u²+v²⟩) — reuse it rather than scanning the grid twice.
+        E_J = 0.5 * (2.0 * math.pi) ** 2 * U * U
         TS = self.iso_utc_timestamp()
         return N, K0, Re, CFL, VISC, STEPS, PALIN, SIG, TIME, DT, MINUTES, FPS, U, L, TAU_L, T_OVER_TAU_L, E_J, TS
 
@@ -2104,10 +2106,15 @@ class MainWindow(QMainWindow):
             return
 
         # Reduce display flicker by using a stable (EMA) mean/std
-        # normalization instead of frame-wise min/max stretching.
-        pix_f = pixels.astype(np.float32, copy=False)
-        self.mu = float(pix_f.mean())
-        self.sig = float(pix_f.std())
+        # normalization instead of frame-wise min/max stretching. GPU backends
+        # hand the moments over with the frame; otherwise scan it here.
+        stats = self.sim.take_frame_stats()
+        if stats is not None:
+            self.mu, self.sig = stats
+        else:
+            pix_f = pixels.astype(np.float32, copy=False)
+            self.mu = float(pix_f.mean())
+            self.sig = float(pix_f.std())
         if self.sig < 1.0:
             self.on_stop_clicked()
             return
@@ -2136,8 +2143,13 @@ class MainWindow(QMainWindow):
         lo = self.mu - k * self.sig
         hi = self.mu + k * self.sig
         inv = 255.0 / (hi - lo) if (hi - lo) != 0.0 else 0.0
-        pixels = ((pix_f - lo) * inv).round().clip(0.0, 255.0).astype(np.uint8)
-        pixels = self._upscale_downscale_u8(pixels)
+
+        # The normalization maps one uint8 level to one uint8 level, so evaluate
+        # it once per level and gather. Four float passes over the full grid
+        # (~4 ms at N=1024) collapse into a single 256-entry lookup.
+        levels = np.arange(256, dtype=np.float32)
+        lut = ((levels - lo) * inv).round().clip(0.0, 255.0).astype(np.uint8)
+        pixels = lut[self._upscale_downscale_u8(pixels)]
         h, w = pixels.shape
         qimg = QImage(
             pixels.data,
@@ -2403,6 +2415,11 @@ def main() -> None:
     ITERATIONS = int(args[8]) if len(args) > 8 else 10 ** 9
     METHOD = cast(dns_all.TimeStepper, args[9].upper()) if len(args) > 9 else "LS_IMEX_RK3"
     MOV = _parse_mov_arg(args)
+
+    dns_all.echo_command(
+        "turbulence", N, K0, Re, STEPS, CFL, backend, UPDATE, start_spectrum,
+        ITERATIONS, METHOD, MOV,
+    )
 
     app = QApplication(sys.argv)
     _apply_gui_colors(app)
