@@ -1,1 +1,2 @@
 C01 | Direct Numba float64 spectrum shell accumulation without full-grid temporaries | 54.64 -> 57.03 | 37.37 -> 36.29 | kept | +4.38% median FPS, 1% low 54 -> 55, spectrum stage 2.47 -> 0.65 ms; p95 pacing improved and one isolated maximum-stall outlier was not reflected in the distribution
+C02 | Direct Numba MLX eddy-metric reductions without full-grid temporaries | 57.03 -> 58.06 | 36.29 -> 35.17 | kept | +1.81% median FPS under revised 1% threshold; 1% low 55 -> 57, longest stall 46.24 -> 39.40 ms, lower peak RSS

@@ -304,6 +304,47 @@ else:
     _spectrum_bincount = _spectrum_bincount_impl
 
 
+def _flow_eddy_metrics_mlx_impl(
+    u_flat: _np.ndarray,
+    v_flat: _np.ndarray,
+    om2_flat: _np.ndarray,
+    k2_flat: _np.ndarray,
+    rfft_weight: _np.ndarray,
+    inv_k_flat: _np.ndarray,
+) -> tuple[float, float, float]:
+    """Float32-compatible MLX diagnostics without full-grid temporaries."""
+    speed2_sum = 0.0
+    for i in range(u_flat.size):
+        speed2 = _np.float32(u_flat[i] * u_flat[i] + v_flat[i] * v_flat[i])
+        speed2_sum += speed2
+
+    energy_sum = 0.0
+    length_sum = 0.0
+    nx_half = rfft_weight.size
+    for i in range(1, om2_flat.size):
+        k2 = k2_flat[i]
+        if k2 <= _np.float32(0.0):
+            continue
+        om = om2_flat[i]
+        power = _np.float32(om.real * om.real + om.imag * om.imag)
+        power = _np.float32(power / k2)
+        weighted = _np.float32(power * rfft_weight[i % nx_half])
+        energy_sum += weighted
+        length_sum += _np.float32(weighted * inv_k_flat[i])
+
+    U = math.sqrt(max(0.0, speed2_sum / u_flat.size))
+    if energy_sum <= 0.0:
+        return U, float("nan"), float("nan")
+    L = 2.0 * math.pi * length_sum / energy_sum
+    return U, L, L / U if U > 0.0 else float("nan")
+
+
+if _nb is not None:
+    _flow_eddy_metrics_mlx_reduction = _nb.njit(cache=True)(_flow_eddy_metrics_mlx_impl)
+else:
+    _flow_eddy_metrics_mlx_reduction = _flow_eddy_metrics_mlx_impl
+
+
 def _pao_build_ur_and_stats_impl(
     N: int,
     NE: int,
@@ -959,12 +1000,9 @@ class DnsState:
         """
         u = self.ur_full[0]
         v = self.ur_full[1]
-        speed2 = _np.asarray(u * u + v * v)
-        U = math.sqrt(max(0.0, float(speed2.mean(dtype=_np.float64))))
 
         k2 = _np.asarray(self.step3_K2)
         nx_half = int(k2.shape[1])
-        nonzero = k2 > _np.float32(0.0)
 
         rfft_weight = getattr(self, "_eddy_rfft_w_np", None)
         if rfft_weight is None or rfft_weight.shape[0] != nx_half:
@@ -976,27 +1014,21 @@ class DnsState:
 
         inv_k = getattr(self, "_eddy_inv_k_np", None)
         if inv_k is None or inv_k.shape != k2.shape:
+            nonzero = k2 > _np.float32(0.0)
             inv_k = _np.where(
                 nonzero,
                 _np.float32(1.0) / _np.sqrt(_np.where(nonzero, k2, _np.float32(1.0))),
                 _np.float32(0.0),
             )
             self._eddy_inv_k_np = inv_k
-
-        om2 = _np.asarray(self.om2)
-        om2_power = om2.real * om2.real + om2.imag * om2.imag
-        safe_k2 = _np.where(nonzero, k2, _np.float32(1.0))
-        power = _np.where(nonzero, om2_power / safe_k2, _np.float32(0.0))
-        weighted_power = power * rfft_weight
-        energy_sum_f = float(weighted_power.sum(dtype=_np.float64) - weighted_power[0, 0])
-
-        if energy_sum_f <= 0.0:
-            return U, float("nan"), float("nan")
-
-        length_sum = float((weighted_power * inv_k).sum(dtype=_np.float64))
-        L = 2.0 * math.pi * length_sum / energy_sum_f
-        tau_l = L / U if U > 0.0 else float("nan")
-        return U, L, tau_l
+        return _flow_eddy_metrics_mlx_reduction(
+            _np.asarray(u).ravel(),
+            _np.asarray(v).ravel(),
+            _np.asarray(self.om2).ravel(),
+            k2.ravel(),
+            rfft_weight,
+            inv_k.ravel(),
+        )
 
     def flow_eddy_metrics(self) -> tuple[float, float, float]:
         if self.backend == "mlx":
