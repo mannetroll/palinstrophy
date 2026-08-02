@@ -305,19 +305,12 @@ else:
 
 
 def _flow_eddy_metrics_mlx_impl(
-    u_flat: _np.ndarray,
-    v_flat: _np.ndarray,
     om2_flat: _np.ndarray,
     k2_flat: _np.ndarray,
     rfft_weight: _np.ndarray,
     inv_k_flat: _np.ndarray,
 ) -> tuple[float, float, float]:
     """Float32-compatible MLX diagnostics without full-grid temporaries."""
-    speed2_sum = 0.0
-    for i in range(u_flat.size):
-        speed2 = _np.float32(u_flat[i] * u_flat[i] + v_flat[i] * v_flat[i])
-        speed2_sum += speed2
-
     energy_sum = 0.0
     length_sum = 0.0
     nx_half = rfft_weight.size
@@ -332,7 +325,10 @@ def _flow_eddy_metrics_mlx_impl(
         energy_sum += weighted
         length_sum += _np.float32(weighted * inv_k_flat[i])
 
-    U = math.sqrt(max(0.0, speed2_sum / u_flat.size))
+    # Parseval: for the normalized spectral coefficients used by this solver,
+    # sum(|omega_hat|^2/k^2) is mean(u^2+v^2).  Reuse the spectral reduction
+    # instead of scanning both 3/2-grid physical velocity planes.
+    U = math.sqrt(max(0.0, energy_sum))
     if energy_sum <= 0.0:
         return U, float("nan"), float("nan")
     L = 2.0 * math.pi * length_sum / energy_sum
@@ -998,9 +994,6 @@ class DnsState:
         Unified memory makes that handoff a view rather than a copy, and the
         result matches the SciPy path exactly.
         """
-        u = self.ur_full[0]
-        v = self.ur_full[1]
-
         k2 = _np.asarray(self.step3_K2)
         nx_half = int(k2.shape[1])
 
@@ -1022,8 +1015,6 @@ class DnsState:
             )
             self._eddy_inv_k_np = inv_k
         return _flow_eddy_metrics_mlx_reduction(
-            _np.asarray(u).ravel(),
-            _np.asarray(v).ravel(),
             _np.asarray(self.om2).ravel(),
             k2.ravel(),
             rfft_weight,
