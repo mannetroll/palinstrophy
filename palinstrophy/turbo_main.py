@@ -7,7 +7,6 @@ import math
 import os
 from pathlib import Path
 import platform
-import resource
 import sys
 import time
 from typing import Optional, cast, get_args
@@ -41,6 +40,55 @@ from palinstrophy.turbo_wrapper import DnsSimulator
 
 FUSION = "Fusion"
 RESTART_FILE = "restart.nc"
+
+
+def _process_max_rss_bytes() -> int | None:
+    """Return this process's peak resident memory in bytes, when available."""
+    if sys.platform == "win32":
+        try:
+            import ctypes
+            from ctypes import wintypes
+
+            class _ProcessMemoryCounters(ctypes.Structure):
+                _fields_ = [
+                    ("cb", wintypes.DWORD),
+                    ("PageFaultCount", wintypes.DWORD),
+                    ("PeakWorkingSetSize", ctypes.c_size_t),
+                    ("WorkingSetSize", ctypes.c_size_t),
+                    ("QuotaPeakPagedPoolUsage", ctypes.c_size_t),
+                    ("QuotaPagedPoolUsage", ctypes.c_size_t),
+                    ("QuotaPeakNonPagedPoolUsage", ctypes.c_size_t),
+                    ("QuotaNonPagedPoolUsage", ctypes.c_size_t),
+                    ("PagefileUsage", ctypes.c_size_t),
+                    ("PeakPagefileUsage", ctypes.c_size_t),
+                ]
+
+            counters = _ProcessMemoryCounters()
+            counters.cb = ctypes.sizeof(counters)
+            kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+            psapi = ctypes.WinDLL("psapi", use_last_error=True)
+            kernel32.GetCurrentProcess.restype = wintypes.HANDLE
+            psapi.GetProcessMemoryInfo.argtypes = [
+                wintypes.HANDLE,
+                ctypes.POINTER(_ProcessMemoryCounters),
+                wintypes.DWORD,
+            ]
+            psapi.GetProcessMemoryInfo.restype = wintypes.BOOL
+            process = kernel32.GetCurrentProcess()
+            if not psapi.GetProcessMemoryInfo(process, ctypes.byref(counters), counters.cb):
+                return None
+            return int(counters.PeakWorkingSetSize)
+        except (AttributeError, OSError):
+            return None
+
+    try:
+        import resource
+    except ImportError:
+        return None
+
+    max_rss = int(resource.getrusage(resource.RUSAGE_SELF).ru_maxrss)
+    # macOS reports bytes; Linux and the other supported Unix platforms use KiB.
+    return max_rss if sys.platform == "darwin" else max_rss * 1024
 
 
 def _to_numpy(arr) -> np.ndarray:
@@ -649,7 +697,7 @@ class _GuiBenchmark:
             "paint_events": self._interval_stats(self.paint_times_ns),
             "stages": stage_summary,
             "memory": {
-                "process_max_rss_bytes": int(resource.getrusage(resource.RUSAGE_SELF).ru_maxrss),
+                "process_max_rss_bytes": _process_max_rss_bytes(),
                 "mlx": mlx_memory,
             },
         }
