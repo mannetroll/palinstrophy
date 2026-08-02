@@ -1600,8 +1600,11 @@ def vfft_full_inverse_uc_full_to_ur_full(S: DnsState) -> None:
         S.ur_full[0:2, :, :] = ur01
     elif S.backend == "mlx":
         # MLX supports norm='forward' natively, so the unnormalized result comes
-        # back directly — same convention as the SciPy and cuFFT paths.
-        S.ur_full[0:2, :, :] = fft.irfft2(
+        # back directly — same convention as the SciPy and cuFFT paths. STEP2B
+        # rebuilds all three nonlinear-product planes, while visualization now
+        # consumes its scratch field directly, so no third plane is needed
+        # between DNS steps.
+        S.ur_full = fft.irfft2(
             UC01, s=(S.NZ_full, S.NX_full), axes=(1, 2), norm='forward'
         )
     else:
@@ -3141,14 +3144,17 @@ def save_spectrum_average_csv(
 # Helpers for visualization fields (energy, vorticity, streamfunction)
 # ---------------------------------------------------------------------------
 
-def dns_kinetic(S: DnsState) -> None:
+def dns_kinetic(S: DnsState):
     xp = S.xp
 
     u = S.ur_full[0, :, :]
     w = S.ur_full[1, :, :]
 
     ke = xp.sqrt(u * u + w * w)
-    S.ur_full[2, :, :] = _astype32(ke, xp.float32)
+    field = _astype32(ke, xp.float32)
+    if S.backend != "mlx":
+        S.ur_full[2, :, :] = field
+    return field
 
 
 def _spectral_band_to_phys_full_grid(S: DnsState, band) -> any:
@@ -3200,13 +3206,15 @@ def _spectral_band_to_phys_full_grid(S: DnsState, band) -> any:
     return xp.asarray(phys, dtype=xp.float32)
 
 
-def dns_om2_phys(S: DnsState) -> None:
+def dns_om2_phys(S: DnsState):
     band = S.om2
     phys = _spectral_band_to_phys_full_grid(S, band)
-    S.ur_full[2, :, :] = phys
+    if S.backend != "mlx":
+        S.ur_full[2, :, :] = phys
+    return phys
 
 
-def dns_stream_func(S: DnsState) -> None:
+def dns_stream_func(S: DnsState):
     xp = S.xp
 
     N = S.Nbase
@@ -3224,7 +3232,9 @@ def dns_stream_func(S: DnsState) -> None:
 
     phi_hat = _div_by_real(xp, S.om2, K2)
     phys = _spectral_band_to_phys_full_grid(S, phi_hat)
-    S.ur_full[2, :, :] = phys
+    if S.backend != "mlx":
+        S.ur_full[2, :, :] = phys
+    return phys
 
 
 def dns_phi_phys(S: DnsState) -> None:

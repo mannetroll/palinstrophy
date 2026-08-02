@@ -1128,14 +1128,11 @@ class MainWindow(QMainWindow):
         if variable == "v":
             return xp.asarray(S.ur_full[1], dtype=xp.float32)
         if variable == "kinetic":
-            dns_all.dns_kinetic(S)
-            return xp.asarray(S.ur_full[2], dtype=xp.float32)
+            return xp.asarray(dns_all.dns_kinetic(S), dtype=xp.float32)
         if variable == "omega":
-            dns_all.dns_om2_phys(S)
-            return xp.asarray(S.ur_full[2], dtype=xp.float32)
+            return xp.asarray(dns_all.dns_om2_phys(S), dtype=xp.float32)
         if variable == "stream":
-            dns_all.dns_stream_func(S)
-            return xp.asarray(S.ur_full[2], dtype=xp.float32)
+            return xp.asarray(dns_all.dns_stream_func(S), dtype=xp.float32)
         raise ValueError(f"Unknown variable: {variable}")
 
     def _get_full_field(self, variable: str) -> np.ndarray:

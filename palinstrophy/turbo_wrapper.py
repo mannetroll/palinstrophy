@@ -496,19 +496,13 @@ class DnsSimulator:
             plane = self._snapshot(2)
 
         elif var == self.VAR_ENERGY:
-            # Use dns_all kinetic helper: fills ur_full[2,:,:]
-            dns_all.dns_kinetic(S)
-            plane = self._field_to_pixels(S.ur_full[2, :, :])
+            plane = self._field_to_pixels(dns_all.dns_kinetic(S))
 
         elif var == self.VAR_OMEGA:
-            # Use dns_all omega→physical helper: fills ur_full[2,:,:]
-            dns_all.dns_om2_phys(S)
-            plane = self._field_to_pixels(S.ur_full[2, :, :])
+            plane = self._field_to_pixels(dns_all.dns_om2_phys(S))
 
         elif var == self.VAR_STREAM:
-            # Use dns_all stream-function helper: fills ur_full[2,:,:]
-            dns_all.dns_stream_func(S)
-            plane = self._field_to_pixels(S.ur_full[2, :, :])
+            plane = self._field_to_pixels(dns_all.dns_stream_func(S))
 
         else:
             plane = self._snapshot(1)
