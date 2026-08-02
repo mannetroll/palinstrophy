@@ -2118,17 +2118,24 @@ class MainWindow(QMainWindow):
     def _on_timer(self) -> None:
         benchmark = self._benchmark
         tick_start_ns = time.perf_counter_ns() if benchmark is not None else 0
-        # one DNS step per timer tick
+        # Run exactly the DNS steps remaining until the next required display.
+        # A zero-interval QTimer between each individual step adds avoidable
+        # event-loop latency; batching never crosses a stop/iteration limit.
         update_interval = int(self._update_intervall)
-        step_start_ns = time.perf_counter_ns() if benchmark is not None else 0
-        self.sim.step(update_interval)
-        step_end_ns = time.perf_counter_ns() if benchmark is not None else 0
-        if benchmark is not None:
-            benchmark.record_stage("dns_step", step_start_ns, step_end_ns)
-            benchmark.record_step(step_end_ns, self.sim.get_iteration())
-
-        # Count frames since the last GUI update
-        self._status_update_counter += 1
+        steps_to_display = max(1, update_interval - self._status_update_counter)
+        steps_to_limit = max(0, min(
+            self.sim.max_steps - self.sim.get_iteration(),
+            self.iterations - self.sim.get_iteration(),
+        ))
+        steps_this_tick = min(steps_to_display, steps_to_limit)
+        for _ in range(steps_this_tick):
+            step_start_ns = time.perf_counter_ns() if benchmark is not None else 0
+            self.sim.step(update_interval)
+            step_end_ns = time.perf_counter_ns() if benchmark is not None else 0
+            if benchmark is not None:
+                benchmark.record_stage("dns_step", step_start_ns, step_end_ns)
+                benchmark.record_step(step_end_ns, self.sim.get_iteration())
+            self._status_update_counter += 1
 
         iteration = self.sim.get_iteration()
         movie_due = self.mov_enabled and iteration > 0 and (iteration % self._movie_frame_interval()) == 0
