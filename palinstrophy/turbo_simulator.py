@@ -2367,7 +2367,7 @@ def dns_step_ls_imex_rk3(S: DnsState) -> None:
             S.fnm1 = fn
 
             _reconstruct_velocity_from_om2_mlx(S)
-            dns_step2a(S)
+            dns_step2a(S, eval_mlx_state=(stage == 2))
         return
 
     dt = xp.float32(S.dt)
@@ -2407,7 +2407,7 @@ def dns_step_ls_imex_rk3(S: DnsState) -> None:
 # ===============================================================
 # STEP2A core (dealias + reshuffle + inverse FFT)
 # ===============================================================
-def dns_step2a(S: DnsState) -> None:
+def dns_step2a(S: DnsState, eval_mlx_state: bool = True) -> None:
     xp = S.xp
     N = S.Nbase
     NX = S.NX
@@ -2504,7 +2504,8 @@ def dns_step2a(S: DnsState) -> None:
         # STEP2A closes out every step (and every RK3 stage), so this is the
         # natural point to realize MLX's lazy graph. Without it the graph would
         # grow without bound and the step timings would be meaningless.
-        S.eval_state()
+        if eval_mlx_state:
+            S.eval_state()
         return
 
     off_x = (NX_full - NX) // 2
