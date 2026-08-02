@@ -2329,6 +2329,12 @@ class MainWindow(QMainWindow):
 
         stats_end_ns = time.perf_counter_ns() if benchmark is not None else 0
 
+        # Spectrum and eddy diagnostics both consume the compact vorticity
+        # spectrum.  The MLX path fuses their reductions and caches U/L/tau for
+        # get_csv_tuple() below, so sample first while the frame is current.
+        self._sample_spectrum_average()
+        spectrum_end_ns = time.perf_counter_ns() if benchmark is not None else 0
+
         # --- grain metrics for stability (from ω field, full grid) ---
         self.palinstrophy_over_enstrophy_kmax2 = self.pal_over_ens_kmax2()
         pal_end_ns = time.perf_counter_ns() if benchmark is not None else 0
@@ -2349,8 +2355,6 @@ class MainWindow(QMainWindow):
             row[CSV_TAU_L_INDEX],
         ))
         self._csv_rows.append(row)
-        self._sample_spectrum_average()
-        spectrum_end_ns = time.perf_counter_ns() if benchmark is not None else 0
 
         k = float(DISPLAY_NORM_K_STD)
         lo = self.mu - k * self.sig
@@ -2382,10 +2386,10 @@ class MainWindow(QMainWindow):
         self._refresh_metrics()
         if benchmark is not None:
             benchmark.record_stage("image_stats", stage_start_ns, stats_end_ns)
-            benchmark.record_stage("palinstrophy_metric", stats_end_ns, pal_end_ns)
+            benchmark.record_stage("spectrum_average", stats_end_ns, spectrum_end_ns)
+            benchmark.record_stage("palinstrophy_metric", spectrum_end_ns, pal_end_ns)
             benchmark.record_stage("eddy_csv_metrics", pal_end_ns, metrics_end_ns)
-            benchmark.record_stage("spectrum_average", metrics_end_ns, spectrum_end_ns)
-            benchmark.record_stage("host_normalize_scale", spectrum_end_ns, normalize_end_ns)
+            benchmark.record_stage("host_normalize_scale", metrics_end_ns, normalize_end_ns)
             benchmark.record_stage("qt_image_pixmap", normalize_end_ns, qt_end_ns)
 
     def _update_status(self, t: float, it: int, fps: Optional[float]) -> None:

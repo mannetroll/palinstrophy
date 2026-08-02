@@ -341,6 +341,48 @@ else:
     _flow_eddy_metrics_mlx_reduction = _flow_eddy_metrics_mlx_impl
 
 
+def _spectrum_and_flow_metrics_mlx_impl(
+    om2_flat: _np.ndarray,
+    bins_flat: _np.ndarray,
+    factor: _np.ndarray,
+    nbins: int,
+    k2_flat: _np.ndarray,
+    rfft_weight: _np.ndarray,
+    inv_k_flat: _np.ndarray,
+) -> tuple[_np.ndarray, float, float, float]:
+    """Accumulate exact spectrum bins and float32 flow metrics in one pass."""
+    esum = _np.zeros(nbins, dtype=_np.float64)
+    energy_sum = 0.0
+    length_sum = 0.0
+    nx_half = rfft_weight.size
+    for i in range(om2_flat.size):
+        om = om2_flat[i]
+        zr = _np.float64(om.real)
+        zi = _np.float64(om.imag)
+        esum[bins_flat[i]] += (zr * zr + zi * zi) * factor[i]
+
+        k2 = k2_flat[i]
+        if i == 0 or k2 <= _np.float32(0.0):
+            continue
+        power = _np.float32(om.real * om.real + om.imag * om.imag)
+        power = _np.float32(power / k2)
+        weighted = _np.float32(power * rfft_weight[i % nx_half])
+        energy_sum += weighted
+        length_sum += _np.float32(weighted * inv_k_flat[i])
+
+    U = math.sqrt(max(0.0, energy_sum))
+    if energy_sum <= 0.0:
+        return esum, U, float("nan"), float("nan")
+    L = 2.0 * math.pi * length_sum / energy_sum
+    return esum, U, L, L / U if U > 0.0 else float("nan")
+
+
+if _nb is not None:
+    _spectrum_and_flow_metrics_mlx = _nb.njit(cache=True)(_spectrum_and_flow_metrics_mlx_impl)
+else:
+    _spectrum_and_flow_metrics_mlx = _spectrum_and_flow_metrics_mlx_impl
+
+
 def _pao_build_ur_and_stats_impl(
     N: int,
     NE: int,
@@ -994,6 +1036,10 @@ class DnsState:
         Unified memory makes that handoff a view rather than a copy, and the
         result matches the SciPy path exactly.
         """
+        cached = getattr(self, "_flow_eddy_metrics_cache", None)
+        if cached is not None and cached[0] == int(self.it):
+            return cached[1]
+
         k2 = _np.asarray(self.step3_K2)
         nx_half = int(k2.shape[1])
 
@@ -2790,7 +2836,31 @@ def _compute_energy_spectrum_omega_bins_cpu(S: DnsState, nbins: int, r_max: floa
     bins_flat, factor, count = _spectrum_bin_geometry_cpu(S, nbins, r_max, k_nyq)
 
     om2 = _np.asarray(S.om2)
-    esum = _spectrum_bincount(om2.ravel(), bins_flat, factor, nbins)
+    if S.backend == "mlx":
+        k2 = _np.asarray(S.step3_K2)
+        nx_half = int(k2.shape[1])
+        rfft_weight = getattr(S, "_eddy_rfft_w_np", None)
+        if rfft_weight is None or rfft_weight.shape[0] != nx_half:
+            rfft_weight = _np.full(nx_half, _np.float32(2.0), dtype=_np.float32)
+            rfft_weight[0] = _np.float32(1.0)
+            if nx_half > 1:
+                rfft_weight[-1] = _np.float32(1.0)
+            S._eddy_rfft_w_np = rfft_weight
+        inv_k = getattr(S, "_eddy_inv_k_np", None)
+        if inv_k is None or inv_k.shape != k2.shape:
+            nonzero = k2 > _np.float32(0.0)
+            inv_k = _np.where(
+                nonzero,
+                _np.float32(1.0) / _np.sqrt(_np.where(nonzero, k2, _np.float32(1.0))),
+                _np.float32(0.0),
+            )
+            S._eddy_inv_k_np = inv_k
+        esum, U, L, tau_l = _spectrum_and_flow_metrics_mlx(
+            om2.ravel(), bins_flat, factor, nbins, k2.ravel(), rfft_weight, inv_k.ravel()
+        )
+        S._flow_eddy_metrics_cache = (int(S.it), (U, L, tau_l))
+    else:
+        esum = _spectrum_bincount(om2.ravel(), bins_flat, factor, nbins)
 
     return SpectrumSample(
         nbins=nbins,
