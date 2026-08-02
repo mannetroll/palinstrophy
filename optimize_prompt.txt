@@ -1,0 +1,125 @@
+You are optimizing the interactive MLX/Metal path of this repository on the
+current Apple Silicon M1 Mac.
+
+Target application:
+
+    uv run turbulence
+
+The application is a PySide6 visual simulation. Optimize the speed a person
+actually experiences while watching it run. The primary metric is the sustained
+simulation FPS reported by the running GUI. Also track displayed-frame cadence
+and long stalls so an apparent FPS gain does not make the animation less smooth.
+
+Scope:
+
+- Focus on the MLX backend and its complete interactive path: DNS stepping, MLX
+  lazy-graph evaluation, Metal FFTs/kernels, synchronization, frame conversion,
+  MLX-to-NumPy handoff, image normalization, metrics/spectrum refresh, and Qt
+  image presentation.
+- Use the exact default `uv run turbulence` workload as the primary benchmark.
+  Confirm at startup that the selected backend is MLX and record the grid size,
+  numerical method, update interval, macOS version, chip/device name, MLX version,
+  Python version, and display refresh rate.
+- Optimize for this machine. Do not add CUDA-specific code or require CUDA,
+  CuPy, Linux, WSL, or NVIDIA tools.
+- Keep CPU and CuPy behavior working, but do not optimize their performance unless
+  a shared change directly benefits the MLX GUI path.
+
+Benchmark protocol:
+
+1. Before changing code, establish a reproducible baseline. Run
+   `uv run turbulence` three times for at least 60 seconds each. Discard the first
+   10 seconds as warm-up and record sustained GUI-reported simulation FPS.
+2. For every run, also record displayed-frame intervals after warm-up. Report
+   median and 1% low simulation FPS, median displayed-frame rate, p95 displayed-
+   frame interval, and the longest stall. The optimization score is the median
+   sustained simulation FPS across the three runs; use smoothness/jank as the
+   tie-breaker.
+3. Prefer lightweight in-app timing with `time.perf_counter_ns()` around the
+   existing stages. If measurement support is missing, add narrowly scoped
+   instrumentation or an opt-in environment-controlled benchmark mode. It must
+   exercise the real visible GUI and must not materially change the normal hot
+   path when disabled.
+4. Keep the window visible, frontmost, at the same size, on the same display, with
+   the same selected field and controls for all measurements. Disable movie
+   recording. Keep the Mac connected to power and avoid unrelated heavy work.
+5. Profile before guessing. Attribute time to simulation steps, `mx.eval`/Metal
+   synchronization, FFTs, reductions, frame extraction, host NumPy processing,
+   metrics/spectrum work, QImage/QPixmap creation, and paint/event-loop delay.
+   Instruments suitable for macOS/Metal, signposts, sampling, or precise internal
+   stage timers are acceptable. Do not use CUDA profilers.
+
+Anti-cheating constraints:
+
+- Do not improve the score by reducing N, changing K0/Re/CFL, changing the time
+  integrator, taking fewer DNS steps, skipping required physics, changing the
+  update interval, lowering image resolution/quality, hiding the window,
+  suppressing required visual/metric updates, or changing how FPS is calculated.
+- Do not count queued lazy MLX work as completed work. Benchmark timings must
+  include the synchronization needed for correct pixels and completed simulation
+  state.
+- Do not optimize only a headless `sim` command and claim success. Headless tests
+  may isolate solver costs, but the final score must come from `uv run turbulence`.
+- Preserve numerical behavior to MLX float32 accuracy and preserve the visible
+  image, selected variable, color mapping, status values, spectrum, adaptive
+  viscosity behavior, controls, and responsiveness.
+- Do not trade sustained speed for memory growth. After warm-up, MLX active/peak
+  memory and process memory must remain bounded during a 10-minute run.
+- Never edit dependency caches, the MLX installation, or generated environment
+  files. Make repository changes only.
+
+Correctness gate:
+
+- Before optimization, capture deterministic MLX reference outputs using a fixed
+  `SCIPYTURBO_SEED`: state/checksum and key diagnostics after short and medium
+  fixed step counts, plus representative rendered pixels.
+- After every candidate change, compare against those references. Use tolerances
+  appropriate for complex64/float32 and the chaotic solver, with tight checks at
+  the short step count. Any material physics drift, NaN/Inf, changed iteration or
+  simulation-time advancement, visibly different frame, broken control, or crash
+  is a failure.
+- Run any existing relevant tests plus a short visible-GUI smoke test. At the end,
+  run the deterministic correctness checks and a visible 10-minute stability test.
+
+Optimization loop:
+
+Continue until there are 10 consecutive non-improving candidates or 50 candidates
+have been measured:
+
+1. Start from the fastest correct retained version and measure it with the fixed
+   protocol.
+2. Profile/analyze and identify the single largest current bottleneck.
+3. Propose ONE concrete change and write down why it should improve real GUI FPS
+   or frame pacing on MLX/Metal.
+4. Implement only that change.
+5. Run the correctness gate and smoke test. If either fails, revert the candidate.
+6. Run the three-run GUI benchmark. Compare it with the best retained version,
+   accounting for run-to-run noise. Keep a change only when the median sustained
+   simulation FPS improves by at least 2% without a meaningful regression in 1%
+   low FPS, p95 frame interval, longest stall, correctness, responsiveness, or
+   bounded memory. Otherwise revert it.
+7. Commit each retained change separately with a message stating the optimization
+   and measured before/after median FPS. Do not commit rejected candidates.
+8. Append one line to `optimization_log.md`:
+
+       <candidate> | <change> | <median FPS before> -> <after> | <p95 frame ms before> -> <after> | kept/reverted | <reason>
+
+9. Repeat without asking for confirmation between candidates.
+
+Be especially alert to MLX-specific costs: accidental graph growth, excess
+`mx.eval` calls, implicit synchronization through `.item()`/`np.asarray`, repeated
+host-device conversions, temporary allocations, unfused elementwise chains,
+redundant FFTs/reductions, and expensive work performed on every rendered frame.
+Do not assume removing a synchronization is valid unless the benchmark still
+waits for the same completed state and pixels.
+
+Stop only when a stopping condition is met or a genuine external blocker prevents
+continued measurement. At the end, report:
+
+- the best median and 1% low simulation FPS and percentage improvement;
+- displayed-frame median rate, p95 interval, and longest stall before/after;
+- exact benchmark configuration and commands;
+- retained commits and rejected ideas;
+- correctness and 10-minute memory/stability results;
+- the remaining dominant bottleneck; and
+- the complete `optimization_log.md`.
