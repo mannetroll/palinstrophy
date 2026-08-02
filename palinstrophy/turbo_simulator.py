@@ -283,6 +283,27 @@ else:
     _pao_hash01 = _pao_hash01_impl
 
 
+def _spectrum_bincount_impl(
+    om2_flat: _np.ndarray,
+    bins_flat: _np.ndarray,
+    factor: _np.ndarray,
+    nbins: int,
+) -> _np.ndarray:
+    """Accumulate spectrum shells without full-size float64 temporaries."""
+    esum = _np.zeros(nbins, dtype=_np.float64)
+    for i in range(om2_flat.size):
+        zr = _np.float64(om2_flat[i].real)
+        zi = _np.float64(om2_flat[i].imag)
+        esum[bins_flat[i]] += (zr * zr + zi * zi) * factor[i]
+    return esum
+
+
+if _nb is not None:
+    _spectrum_bincount = _nb.njit(cache=True)(_spectrum_bincount_impl)
+else:
+    _spectrum_bincount = _spectrum_bincount_impl
+
+
 def _pao_build_ur_and_stats_impl(
     N: int,
     NE: int,
@@ -2746,8 +2767,7 @@ def _compute_energy_spectrum_omega_bins_cpu(S: DnsState, nbins: int, r_max: floa
     bins_flat, factor, count = _spectrum_bin_geometry_cpu(S, nbins, r_max, k_nyq)
 
     om2 = _np.asarray(S.om2)
-    power = om2.real.astype(_np.float64) ** 2 + om2.imag.astype(_np.float64) ** 2
-    esum = _np.bincount(bins_flat, weights=power.ravel() * factor, minlength=nbins)
+    esum = _spectrum_bincount(om2.ravel(), bins_flat, factor, nbins)
 
     return SpectrumSample(
         nbins=nbins,

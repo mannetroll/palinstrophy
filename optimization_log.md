@@ -1,0 +1,1 @@
+C01 | Direct Numba float64 spectrum shell accumulation without full-grid temporaries | 54.64 -> 57.03 | 37.37 -> 36.29 | kept | +4.38% median FPS, 1% low 54 -> 55, spectrum stage 2.47 -> 0.65 ms; p95 pacing improved and one isolated maximum-stall outlier was not reflected in the distribution
