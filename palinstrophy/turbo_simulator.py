@@ -1928,6 +1928,9 @@ def _compute_nonlinear_vorticity_term_mlx(S: DnsState):
     return fn * S.step3_divxz
 
 
+_MLX_RECONSTRUCT_VELOCITY = None
+
+
 def _reconstruct_velocity_from_om2_mlx(S: DnsState) -> None:
     """
     MLX equivalent of _reconstruct_velocity_from_om2.
@@ -1941,15 +1944,20 @@ def _reconstruct_velocity_from_om2_mlx(S: DnsState) -> None:
     NZ = int(S.Nbase)
     NX_half = NZ // 2
 
-    om2 = S.om2
-    base = om2 * S.step3_invK2_full
+    global _MLX_RECONSTRUCT_VELOCITY
+    if _MLX_RECONSTRUCT_VELOCITY is None:
+        def reconstruct(om2, inv_k2, gamma, alfa, inv_gamma0):
+            base = om2 * inv_k2
+            out1 = (base * gamma[:, None]) * xp.array(-1.0j, dtype=xp.complex64)
+            out2 = (base * alfa[None, :]) * xp.array(1.0j, dtype=xp.complex64)
+            out1[:, 0] = (xp.array(-1.0j, dtype=xp.complex64) * om2[:, 0]) * inv_gamma0
+            out2[:, 0] = _zero_c(xp)
+            return out1, out2
+        _MLX_RECONSTRUCT_VELOCITY = xp.compile(reconstruct)
 
-    out1 = (base * S.gamma[:, None]) * xp.array(-1.0j, dtype=xp.complex64)
-    out2 = (base * S.alfa[None, :]) * xp.array(1.0j, dtype=xp.complex64)
-
-    # kx == 0 is the special 1/GAMMA branch, not the 1/K2 one.
-    out1[:, 0] = (xp.array(-1.0j, dtype=xp.complex64) * om2[:, 0]) * S.step3_inv_gamma0
-    out2[:, 0] = _zero_c(xp)
+    out1, out2 = _MLX_RECONSTRUCT_VELOCITY(
+        S.om2, S.step3_invK2_full, S.gamma, S.alfa, S.step3_inv_gamma0
+    )
 
     S.uc_full[0, :NZ, :NX_half] = out1
     S.uc_full[1, :NZ, :NX_half] = out2
