@@ -2,9 +2,12 @@
 import colorsys
 import csv
 import datetime as _dt
+import json
 import math
 import os
 from pathlib import Path
+import platform
+import resource
 import sys
 import time
 from typing import Optional, cast, get_args
@@ -465,6 +468,177 @@ CSV_T_OVER_TAU_L_INDEX = CSV_HEADER.index("T_OVER_TAU_L")
 MOVIE_FRAME_STEM = "Ω_Inferno"
 
 
+class _GuiBenchmark:
+    """Opt-in timing for the real, visible GUI path.
+
+    Enabled only when SCIPYTURBO_BENCH_SECONDS is set.  Keeping the collector
+    here avoids a second benchmark-only application whose event-loop behavior
+    could differ from ``uv run turbulence``.
+    """
+
+    def __init__(self, duration_s: float, warmup_s: float, output_path: Path) -> None:
+        if duration_s <= warmup_s:
+            raise ValueError("SCIPYTURBO_BENCH_SECONDS must exceed warm-up time")
+        self.duration_ns = int(duration_s * 1.0e9)
+        self.warmup_ns = int(warmup_s * 1.0e9)
+        self.output_path = output_path
+        self.start_ns = 0
+        self.start_iteration = 0
+        self.step_samples: list[tuple[int, int]] = []
+        self.frame_times_ns: list[int] = []
+        self.paint_times_ns: list[int] = []
+        self.stage_ms: dict[str, list[float]] = {
+            "dns_step": [],
+            "frame_extract": [],
+            "image_update": [],
+            "status_update": [],
+            "timer_tick": [],
+        }
+        self.finished = False
+        self.initial_re = float("nan")
+
+    @classmethod
+    def from_env(cls) -> "_GuiBenchmark | None":
+        raw = os.environ.get("SCIPYTURBO_BENCH_SECONDS")
+        if not raw:
+            return None
+        duration_s = float(raw)
+        warmup_s = float(os.environ.get("SCIPYTURBO_BENCH_WARMUP", "10"))
+        output = Path(os.environ.get("SCIPYTURBO_BENCH_OUTPUT", "gui_benchmark.json"))
+        return cls(duration_s, warmup_s, output)
+
+    def start(self, iteration: int, initial_re: float) -> None:
+        if self.start_ns:
+            return
+        self.start_ns = time.perf_counter_ns()
+        self.start_iteration = int(iteration)
+        self.initial_re = float(initial_re)
+
+    def elapsed_ns(self, now_ns: int | None = None) -> int:
+        if not self.start_ns:
+            return 0
+        return (time.perf_counter_ns() if now_ns is None else now_ns) - self.start_ns
+
+    def after_warmup(self, now_ns: int) -> bool:
+        return self.elapsed_ns(now_ns) >= self.warmup_ns
+
+    def record_stage(self, name: str, start_ns: int, end_ns: int) -> None:
+        if self.after_warmup(end_ns):
+            self.stage_ms.setdefault(name, []).append((end_ns - start_ns) / 1.0e6)
+
+    def record_step(self, now_ns: int, iteration: int) -> None:
+        if self.after_warmup(now_ns):
+            self.step_samples.append((now_ns, int(iteration)))
+
+    def record_frame(self, now_ns: int) -> None:
+        if self.after_warmup(now_ns):
+            self.frame_times_ns.append(now_ns)
+
+    def record_paint(self, now_ns: int) -> None:
+        if self.after_warmup(now_ns):
+            self.paint_times_ns.append(now_ns)
+
+    def due(self, now_ns: int) -> bool:
+        return bool(self.start_ns and self.elapsed_ns(now_ns) >= self.duration_ns)
+
+    @staticmethod
+    def _percentile(values: list[float], q: float) -> float:
+        return float(np.percentile(np.asarray(values, dtype=np.float64), q)) if values else float("nan")
+
+    @classmethod
+    def _interval_stats(cls, timestamps_ns: list[int]) -> dict[str, float | int]:
+        intervals = np.diff(np.asarray(timestamps_ns, dtype=np.int64)) / 1.0e6
+        vals = intervals.tolist()
+        median_ms = cls._percentile(vals, 50.0)
+        return {
+            "count": len(vals),
+            "median_rate_hz": 1000.0 / median_ms if median_ms > 0.0 else float("nan"),
+            "median_interval_ms": median_ms,
+            "p95_interval_ms": cls._percentile(vals, 95.0),
+            "longest_stall_ms": max(vals) if vals else float("nan"),
+        }
+
+    def finish(self, window: "MainWindow", now_ns: int) -> None:
+        if self.finished:
+            return
+        self.finished = True
+        measurement_start = self.start_ns + self.warmup_ns
+        measurement_end = now_ns
+        elapsed_s = max(1.0e-9, (measurement_end - measurement_start) / 1.0e9)
+
+        samples = [(ts, it) for ts, it in self.step_samples if ts >= measurement_start]
+        start_it = samples[0][1] - 1 if samples else window.sim.get_iteration()
+        end_it = samples[-1][1] if samples else start_it
+        sustained_fps = (end_it - start_it) / elapsed_s
+
+        second_rates: list[float] = []
+        if samples:
+            full_seconds = int(elapsed_s)
+            edges = measurement_start + np.arange(full_seconds + 1, dtype=np.int64) * 1_000_000_000
+            if edges.size >= 2:
+                counts, _ = np.histogram(np.asarray([x[0] for x in samples], dtype=np.int64), bins=edges)
+                second_rates = counts.astype(np.float64).tolist()
+
+        stage_summary = {
+            name: {
+                "count": len(values),
+                "median_ms": self._percentile(values, 50.0),
+                "p95_ms": self._percentile(values, 95.0),
+                "max_ms": max(values) if values else float("nan"),
+            }
+            for name, values in self.stage_ms.items()
+        }
+
+        mlx_memory: dict[str, int] = {}
+        if window.sim.state.backend == "mlx":
+            import mlx.core as mx
+            for name in ("get_active_memory", "get_peak_memory", "get_cache_memory"):
+                func = getattr(mx, name, None)
+                if callable(func):
+                    mlx_memory[name.removeprefix("get_")] = int(func())
+
+        screen = QApplication.primaryScreen()
+        result = {
+            "configuration": {
+                "backend": window.sim.state.backend,
+                "N": int(window.sim.N),
+                "K0": float(window.sim.k0),
+                "Re": self.initial_re,
+                "final_adaptive_Re": float(window.sim.re),
+                "CFL": float(window.sim.cfl),
+                "method": str(window.sim.method),
+                "update_interval": int(window._update_intervall),
+                "selected_variable": window.variable_combo.currentText(),
+                "colormap": window.current_cmap_name,
+                "movie": bool(window.mov_enabled),
+                "window_size": [window.width(), window.height()],
+                "display": screen.name() if screen is not None else None,
+                "display_refresh_hz": float(screen.refreshRate()) if screen is not None else None,
+                "python": sys.version,
+                "platform": platform.platform(),
+            },
+            "warmup_s": self.warmup_ns / 1.0e9,
+            "measurement_s": elapsed_s,
+            "simulation": {
+                "steps": end_it - start_it,
+                "sustained_fps": sustained_fps,
+                "median_1s_fps": self._percentile(second_rates, 50.0),
+                "one_percent_low_fps": self._percentile(second_rates, 1.0),
+                "one_second_rates": second_rates,
+            },
+            "display_frames": self._interval_stats(self.frame_times_ns),
+            "paint_events": self._interval_stats(self.paint_times_ns),
+            "stages": stage_summary,
+            "memory": {
+                "process_max_rss_bytes": int(resource.getrusage(resource.RUSAGE_SELF).ru_maxrss),
+                "mlx": mlx_memory,
+            },
+        }
+        self.output_path.parent.mkdir(parents=True, exist_ok=True)
+        self.output_path.write_text(json.dumps(result, indent=2, allow_nan=True) + "\n")
+        print(f"[BENCHMARK] wrote {self.output_path}")
+
+
 class MainWindow(QMainWindow):
     def __init__(self, sim: DnsSimulator, steps: str, update: str, iterations: int, mov: int = 0) -> None:
         super().__init__()
@@ -519,6 +693,9 @@ class MainWindow(QMainWindow):
         )
         self.image_label.setMinimumSize(1, 1)
         self.image_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._benchmark = _GuiBenchmark.from_env()
+        if self._benchmark is not None:
+            self.image_label.installEventFilter(self)
 
         style = QApplication.style()
 
@@ -948,6 +1125,9 @@ class MainWindow(QMainWindow):
         self._sim_start_iter = self.sim.get_iteration()
         if not self.timer.isActive():
             self.timer.start()
+
+        if self._benchmark is not None:
+            self._benchmark.start(self.sim.get_iteration(), self._movie_initial_re)
 
         self._update_run_buttons()
 
@@ -1901,9 +2081,16 @@ class MainWindow(QMainWindow):
         print(f"[MOV] Saved {path} at iteration {iteration}")
 
     def _on_timer(self) -> None:
+        benchmark = self._benchmark
+        tick_start_ns = time.perf_counter_ns() if benchmark is not None else 0
         # one DNS step per timer tick
         update_interval = int(self._update_intervall)
+        step_start_ns = time.perf_counter_ns() if benchmark is not None else 0
         self.sim.step(update_interval)
+        step_end_ns = time.perf_counter_ns() if benchmark is not None else 0
+        if benchmark is not None:
+            benchmark.record_stage("dns_step", step_start_ns, step_end_ns)
+            benchmark.record_step(step_end_ns, self.sim.get_iteration())
 
         # Count frames since the last GUI update
         self._status_update_counter += 1
@@ -1915,8 +2102,15 @@ class MainWindow(QMainWindow):
         if display_due or movie_due:
             if movie_due:
                 self.sim._next_dt_pending = True
+            frame_start_ns = time.perf_counter_ns() if benchmark is not None else 0
             pixels = self.sim.get_frame_pixels()
+            frame_end_ns = time.perf_counter_ns() if benchmark is not None else 0
             self._update_image(pixels)
+            image_end_ns = time.perf_counter_ns() if benchmark is not None else 0
+            if benchmark is not None:
+                benchmark.record_stage("frame_extract", frame_start_ns, frame_end_ns)
+                benchmark.record_stage("image_update", frame_end_ns, image_end_ns)
+                benchmark.record_frame(image_end_ns)
 
             # ---- FPS from simulation start ----
             now = time.time()
@@ -1927,11 +2121,15 @@ class MainWindow(QMainWindow):
             if elapsed > 0 and steps > 0:
                 fps = steps / elapsed
 
+            status_start_ns = time.perf_counter_ns() if benchmark is not None else 0
             self._update_status(
                 self.sim.get_time(),
                 iteration,
                 fps,
             )
+            status_end_ns = time.perf_counter_ns() if benchmark is not None else 0
+            if benchmark is not None:
+                benchmark.record_stage("status_update", status_start_ns, status_end_ns)
 
             self._save_movie_frame()
 
@@ -1953,6 +2151,14 @@ class MainWindow(QMainWindow):
 
         if self.sim.get_iteration() >= self.iterations:
             self.quit_sim()
+
+        if benchmark is not None:
+            tick_end_ns = time.perf_counter_ns()
+            benchmark.record_stage("timer_tick", tick_start_ns, tick_end_ns)
+            if benchmark.due(tick_end_ns):
+                self.timer.stop()
+                benchmark.finish(self, tick_end_ns)
+                QTimer.singleShot(0, QApplication.quit)
 
     def quit_sim(self):
         print(f" Max iteration reached: {self.iterations}, exiting...")
@@ -2101,6 +2307,8 @@ class MainWindow(QMainWindow):
         return palinstrophy / (total * kmax2)
 
     def _update_image(self, pixels: np.ndarray) -> None:
+        benchmark = self._benchmark
+        stage_start_ns = time.perf_counter_ns() if benchmark is not None else 0
         pixels = np.asarray(pixels, dtype=np.uint8)
         if pixels.ndim != 2:
             return
@@ -2119,8 +2327,11 @@ class MainWindow(QMainWindow):
             self.on_stop_clicked()
             return
 
+        stats_end_ns = time.perf_counter_ns() if benchmark is not None else 0
+
         # --- grain metrics for stability (from ω field, full grid) ---
         self.palinstrophy_over_enstrophy_kmax2 = self.pal_over_ens_kmax2()
+        pal_end_ns = time.perf_counter_ns() if benchmark is not None else 0
 
         # Auto-adapt viscosity (and thus effective Re) every rendered update
         self.adapt_visc()
@@ -2130,6 +2341,7 @@ class MainWindow(QMainWindow):
         # store in memory and write to a CSV file in dump_to_folder() method
         # store in memory (later written to CSV by dump_to_folder)
         row = self.get_csv_tuple()
+        metrics_end_ns = time.perf_counter_ns() if benchmark is not None else 0
         self.t_over_tl_label.setText(self._format_eddy_metrics(
             row[CSV_T_OVER_TAU_L_INDEX],
             row[CSV_U_INDEX],
@@ -2138,6 +2350,7 @@ class MainWindow(QMainWindow):
         ))
         self._csv_rows.append(row)
         self._sample_spectrum_average()
+        spectrum_end_ns = time.perf_counter_ns() if benchmark is not None else 0
 
         k = float(DISPLAY_NORM_K_STD)
         lo = self.mu - k * self.sig
@@ -2150,6 +2363,7 @@ class MainWindow(QMainWindow):
         levels = np.arange(256, dtype=np.float32)
         lut = ((levels - lo) * inv).round().clip(0.0, 255.0).astype(np.uint8)
         pixels = lut[self._upscale_downscale_u8(pixels)]
+        normalize_end_ns = time.perf_counter_ns() if benchmark is not None else 0
         h, w = pixels.shape
         qimg = QImage(
             pixels.data,
@@ -2162,9 +2376,17 @@ class MainWindow(QMainWindow):
         qimg.setColorTable(table)
         pix = QPixmap.fromImage(qimg, Qt.ImageConversionFlag.NoFormatConversion)
         self.image_label.setPixmap(pix)
+        qt_end_ns = time.perf_counter_ns() if benchmark is not None else 0
 
         self._refresh_spectrum()
         self._refresh_metrics()
+        if benchmark is not None:
+            benchmark.record_stage("image_stats", stage_start_ns, stats_end_ns)
+            benchmark.record_stage("palinstrophy_metric", stats_end_ns, pal_end_ns)
+            benchmark.record_stage("eddy_csv_metrics", pal_end_ns, metrics_end_ns)
+            benchmark.record_stage("spectrum_average", metrics_end_ns, spectrum_end_ns)
+            benchmark.record_stage("host_normalize_scale", spectrum_end_ns, normalize_end_ns)
+            benchmark.record_stage("qt_image_pixmap", normalize_end_ns, qt_end_ns)
 
     def _update_status(self, t: float, it: int, fps: Optional[float]) -> None:
         fps_str = f"{fps:5.2f}" if fps is not None else " N/A"
@@ -2252,6 +2474,10 @@ class MainWindow(QMainWindow):
         self.sim.state.visc = 1.0 / Re_eff
 
     def eventFilter(self, obj, event):
+        if obj is self.image_label and event.type() == QEvent.Type.Paint:
+            if self._benchmark is not None:
+                self._benchmark.record_paint(time.perf_counter_ns())
+
         if obj is self.title_label:
             if event.type() == QEvent.Type.MouseButtonPress and event.button() == Qt.MouseButton.LeftButton:
                 self._title_drag_offset = event.globalPosition().toPoint() - self.frameGeometry().topLeft()
@@ -2436,6 +2662,9 @@ def main() -> None:
     g.moveCenter(screen.center())
     window.setGeometry(g)
     window.show()
+    if window._benchmark is not None:
+        window.raise_()
+        window.activateWindow()
     sys.exit(app.exec())
 
 
