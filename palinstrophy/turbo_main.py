@@ -31,6 +31,11 @@ from PySide6.QtWidgets import (
 )
 import numpy as np
 
+try:
+    import numba as _nb
+except Exception:
+    _nb = None
+
 from palinstrophy import turbo_simulator as dns_all
 from palinstrophy.turbo_wrapper import DnsSimulator
 
@@ -466,6 +471,20 @@ CSV_L_INDEX = CSV_HEADER.index("L")
 CSV_TAU_L_INDEX = CSV_HEADER.index("TAU_L")
 CSV_T_OVER_TAU_L_INDEX = CSV_HEADER.index("T_OVER_TAU_L")
 MOVIE_FRAME_STEM = "Ω_Inferno"
+
+
+def _lut_downsample_impl(pixels: np.ndarray, lut: np.ndarray, stride: int, out: np.ndarray) -> None:
+    """Apply a uint8 LUT while taking the GUI's nearest-neighbor sample."""
+    for y in range(out.shape[0]):
+        src_y = y * stride
+        for x in range(out.shape[1]):
+            out[y, x] = lut[pixels[src_y, x * stride]]
+
+
+if _nb is not None:
+    _lut_downsample = _nb.njit(cache=True)(_lut_downsample_impl)
+else:
+    _lut_downsample = _lut_downsample_impl
 
 
 class _GuiBenchmark:
@@ -935,6 +954,7 @@ class MainWindow(QMainWindow):
         # Keep-alive buffers for QImage wrappers
         self._last_pixels_rgb: Optional[np.ndarray] = None  # retained for compatibility
         self._last_pixels_u8: Optional[np.ndarray] = None
+        self._display_lut_buffer: Optional[np.ndarray] = None
 
         # --- FPS from simulation start ---
         self._sim_start_time = time.time()
@@ -1080,6 +1100,21 @@ class MainWindow(QMainWindow):
 
         s = int(scale)  # 2,4,6,...
         return np.ascontiguousarray(pix[::s, ::s])
+
+    def _apply_display_lut(self, pixels: np.ndarray, lut: np.ndarray) -> np.ndarray:
+        """Apply display scaling and the normalization LUT in one pass when downsampling."""
+        scale = self._display_scale()
+        if scale <= 1.0:
+            return lut[self._upscale_downscale_u8(pixels)]
+
+        stride = int(scale)
+        shape = ((pixels.shape[0] + stride - 1) // stride, (pixels.shape[1] + stride - 1) // stride)
+        out = self._display_lut_buffer
+        if out is None or out.shape != shape:
+            out = np.empty(shape, dtype=np.uint8)
+            self._display_lut_buffer = out
+        _lut_downsample(pixels, lut, stride, out)
+        return out
 
     def _get_full_field_raw(self, variable: str):
         """
@@ -2366,7 +2401,7 @@ class MainWindow(QMainWindow):
         # (~4 ms at N=1024) collapse into a single 256-entry lookup.
         levels = np.arange(256, dtype=np.float32)
         lut = ((levels - lo) * inv).round().clip(0.0, 255.0).astype(np.uint8)
-        pixels = lut[self._upscale_downscale_u8(pixels)]
+        pixels = self._apply_display_lut(pixels, lut)
         normalize_end_ns = time.perf_counter_ns() if benchmark is not None else 0
         h, w = pixels.shape
         qimg = QImage(
