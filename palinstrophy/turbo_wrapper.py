@@ -11,6 +11,8 @@ from PIL import Image
 # --- ONLY: SciPy FFT threading control (CPU) ---
 import scipy.fft as spfft
 
+_MLX_FRAME_NORMALIZER = None
+
 
 class DnsSimulator:
     """
@@ -354,22 +356,25 @@ class DnsSimulator:
         twice on the host costs ~4 ms per frame at N=1024.
         """
         import mlx.core as mx  # type: ignore
+        global _MLX_FRAME_NORMALIZER
+        if _MLX_FRAME_NORMALIZER is None:
+            def normalize(field):
+                fmin = mx.min(field)
+                fmax = mx.max(field)
+                rng = fmax - fmin
+                is_const = mx.abs(rng) <= 1.0e-12
+                denom = mx.where(is_const, mx.array(1.0, dtype=mx.float32), rng)
+                norm = (field - fmin) / denom
+                pixf = mx.clip(1.0 + norm * 254.0, 1.0, 255.0)
+                pix = mx.where(is_const, mx.array(128, dtype=mx.uint8), pixf.astype(mx.uint8))
+                pix_f = pix.astype(mx.float32)
+                mean = mx.mean(pix_f)
+                std = mx.sqrt(mx.mean((pix_f - mean) * (pix_f - mean)))
+                return pix, mean, std
 
-        fmin = mx.min(field_mx)
-        fmax = mx.max(field_mx)
-        rng = fmax - fmin
-        is_const = mx.abs(rng) <= 1.0e-12
+            _MLX_FRAME_NORMALIZER = mx.compile(normalize)
 
-        denom = mx.where(is_const, mx.array(1.0, dtype=mx.float32), rng)
-        norm = (field_mx - fmin) / denom
-        pixf = mx.clip(1.0 + norm * 254.0, 1.0, 255.0)
-
-        pix = mx.where(is_const, mx.array(128, dtype=mx.uint8), pixf.astype(mx.uint8))
-
-        # Two-pass mean/std in float32, matching what NumPy computes host-side.
-        pix_f = pix.astype(mx.float32)
-        mean = mx.mean(pix_f)
-        std = mx.sqrt(mx.mean((pix_f - mean) * (pix_f - mean)))
+        pix, mean, std = _MLX_FRAME_NORMALIZER(field_mx)
 
         mx.eval(pix, mean, std)
         self._frame_stats = (float(mean.item()), float(std.item()))
