@@ -1918,14 +1918,19 @@ def _compute_nonlinear_vorticity_term_mlx(S: DnsState):
     NX_half = int(S.Nbase) // 2
 
     uc_full = S.uc_full
-    z_spec = S.step3_z_spec
-    uc1_th = xp.take(uc_full[0, :, :NX_half], z_spec, axis=0)
-    uc2_th = xp.take(uc_full[1, :, :NX_half], z_spec, axis=0)
-    uc3_th = xp.take(uc_full[2, :, :NX_half], z_spec, axis=0)
+    def band_term(start: int, weights):
+        stop = start + NX_half
+        fn_band = (
+            uc_full[0, start:stop, :NX_half] - uc_full[1, start:stop, :NX_half]
+        ) * weights[0]
+        fn_band = fn_band + uc_full[2, start:stop, :NX_half] * weights[1]
+        return fn_band * S.step3_divxz
 
-    fn = (uc1_th - uc2_th) * S.step3_GA
-    fn = fn + uc3_th * S.step3_G2mA2
-    return fn * S.step3_divxz
+    positive = band_term(0, (S.step3_GA[:NX_half], S.step3_G2mA2[:NX_half]))
+    negative = band_term(
+        S.Nbase, (S.step3_GA[NX_half:], S.step3_G2mA2[NX_half:])
+    )
+    return xp.concatenate((positive, negative), axis=0)
 
 
 _MLX_RECONSTRUCT_VELOCITY = None
