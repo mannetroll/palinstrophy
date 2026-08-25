@@ -43,7 +43,7 @@ Run the `turbulence` GUI to:
   - **U**, **V** (velocity components)
   - **K** (kinetic energy)
   - **Ω** (vorticity)
-  - **φ** (stream function)
+  - **ψ** (stream function)
 - Lets you switch **colormap** (several built-in palettes)
 - Lets you change simulation settings on the fly:
   - Grid size **N**
@@ -112,7 +112,7 @@ Where:
 - STEPS      — max steps before reset/stop
 - CFL        — target CFL number (defaults to 2.0)
 - BACKEND    — "cpu", "gpu" (CUDA), "mlx" (Apple Silicon), or "auto"
-- UPDATE     — DNS steps per GUI timer update (defaults to 5)
+- UPDATE     — DNS steps per GUI timer update (defaults to 2)
 - SPECTRUM   — "KM3" or "PAO" (optional, defaults to "KM3")
 - ITERATIONS — total iterations before the GUI quits; if supplied, put SPECTRUM before it
 - METHOD     — "CNAB2" or "LS_IMEX_RK3" (optional, defaults to "LS_IMEX_RK3")
@@ -297,7 +297,7 @@ Inspect the results:
     turbo_simulator.prof% stats 20
 
 
-### GUI profiling with SnakeViz
+### Viewing a cProfile report with SnakeViz
 
 Install SnakeViz:
 
@@ -307,17 +307,17 @@ Visualize the profile:
 
     $ snakeviz turbo_simulator.prof
 
-### Memory & CPU profiling with Scalene (GUI)
+### Scalene HTML report for the solver CLI
 
 Install Scalene:
 
     $ uv pip install "scalene==1.5.55"
 
-Run with GUI report:
+Run the solver and generate Scalene's interactive report:
 
     $ scalene -m palinstrophy.turbo_simulator 256 10000 10 201 0.75 cpu 100 KM3
 
-### Memory & CPU profiling with Scalene (CLI only)
+### Scalene terminal report
 
 For a terminal-only summary:
 

@@ -1,5 +1,5 @@
 """
-Plot a CUDA time-averaged energy spectrum from an output folder.
+Plot a time-averaged energy spectrum from an output folder.
 
 Reads:
     output_.../energy_spectrum.csv
@@ -9,8 +9,8 @@ lines followed by:
     normalized_radius,shell_sum_energy,count
 
 Usage:
-    uv run python -m tools.timeaverage_spectrum output_folder
-    uv run python -m tools.timeaverage_spectrum output_folder -o /tmp/avg.png
+    uv run python -m palinstrophy.timeaverage_spectrum output_folder
+    uv run python -m palinstrophy.timeaverage_spectrum output_folder -o /tmp/avg.png
 
 Writes:
     timeaverage_spectrum.png

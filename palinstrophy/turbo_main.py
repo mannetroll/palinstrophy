@@ -165,7 +165,7 @@ QCheckBox {
 
 QCheckBox::indicator {
     background-color: #121212;
-    border-color: #2a2a2a;
+    border: 1px solid #666;
 }
 
 QCheckBox::indicator:checked {

@@ -3,20 +3,24 @@
 # \;\;\Rightarrow\;\;
 # \log(\mathrm{Re}) \approx \frac{4}{3}\log(N) - \frac{4}{3}\log(k_0) + \text{const}
 
+from pathlib import Path
+
 import numpy as np
 import matplotlib.pyplot as plt
 from mpl_toolkits.mplot3d import Axes3D  # noqa: F401
 
 # Load CSV (expects header row with columns including: N, Re, K0)
 # If your file has different column names, edit the names below.
-data = np.genfromtxt("sim_metadata.csv", delimiter=",", names=True, dtype=None, encoding="utf-8")
+csv_path = Path(__file__).with_name("sim_metadata.csv")
+data = np.genfromtxt(csv_path, delimiter=",", names=True, dtype=None, encoding="utf-8")
 
 N = data["N"].astype(float)
 Re = data["Re"].astype(float)
 K0 = data["K0"].astype(float)
 
-# Moderate subset: Re < 1e6
-mask = Re < 1e6
+# Moderate subset
+Re_max = 1e6
+mask = Re < Re_max
 N = N[mask]
 Re = Re[mask]
 K0 = K0[mask]
@@ -34,7 +38,7 @@ a, b, c = beta
 yhat = X @ beta
 r2 = 1.0 - np.sum((y - yhat) ** 2) / np.sum((y - y.mean()) ** 2)
 
-print(f"Using {len(y)} points where Re < 1e7")
+print(f"Using {len(y)} points where Re < {Re_max:.1e}")
 print(f"log10(Re) ≈ {a:.6f}*log10(N) + {b:.6f}*log10(K0) + {c:.6f}")
 print(f"a = {a:.6f}")
 print(f"b = {b:.6f}")
@@ -61,6 +65,8 @@ ax.plot_surface(X1g, X2g, Yg2, alpha=0.35)
 ax.set_xlabel("log10(N)")
 ax.set_ylabel("log10(K0)")
 ax.set_zlabel("log10(Re)")
-ax.set_title(f"log10(Re) = {a:.6f}*log10(N) + {b:.6f}*log10(K0) + {c:.6f}  (Re < 1e7)")
+ax.set_title(
+    f"log10(Re) = {a:.6f}*log10(N) + {b:.6f}*log10(K0) + {c:.6f}  (Re < {Re_max:.1e})"
+)
 
 plt.show()

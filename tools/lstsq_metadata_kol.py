@@ -1,12 +1,15 @@
 #
 # \log(\mathrm{Re}) \approx \frac{4}{3}\log(N) - \frac{4}{3}\log(k_0) + \text{const}
 #
+from pathlib import Path
+
 import numpy as np
 import matplotlib.pyplot as plt
 from mpl_toolkits.mplot3d import Axes3D  # noqa: F401
 
 # Load CSV (expects header row with columns including: N, Re, K0)
-data = np.genfromtxt("sim_metadata.csv", delimiter=",", names=True, dtype=None, encoding="utf-8")
+csv_path = Path(__file__).with_name("sim_metadata.csv")
+data = np.genfromtxt(csv_path, delimiter=",", names=True, dtype=None, encoding="utf-8")
 
 N = data["N"].astype(float)
 Re = data["Re"].astype(float)

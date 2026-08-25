@@ -10,10 +10,11 @@ set -euo pipefail
 #   - README.txt
 #
 # Usage:
+#   Run these commands from the repository root.
 #   1. Build the app:
-#        uv run pyinstaller palinstrophy.spec
+#        uv run pyinstaller macos.spec
 #   2. Create DMG:
-#        ./make_dmg.sh
+#        tools/make_dmg.sh
 #
 
 APP_NAME="palinstrophy"
@@ -27,7 +28,7 @@ VOLNAME="palinstrophy"
 # ----------------------------------------------------------
 if [ ! -d "${APP_BUNDLE}" ]; then
     echo "ERROR: ${APP_BUNDLE} does not exist."
-    echo "Run:  uv run pyinstaller palinstrophy.spec"
+    echo "Run:  uv run pyinstaller macos.spec"
     exit 1
 fi
 
