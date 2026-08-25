@@ -42,6 +42,7 @@ coll = COLLECT(
 app = BUNDLE(
     coll,
     name="palinstrophy.app",
+    version="0.1.6",
     icon="palinstrophy/palinstrophy.icns",
     bundle_identifier="se.mannetroll.palinstrophy",
 )
