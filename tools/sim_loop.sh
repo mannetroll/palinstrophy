@@ -18,7 +18,8 @@ Re_from_N_K0 () {
 #
 rm -f output_N*
 CSV="sim_metadata.csv"
-echo "N, K0, Re, CFL, VISC, STEPS, PALIN, SIG, TIME, MINUTES, FPS" > "$CSV"
+HEADER="N, K0, Re, CFL, VISC, STEPS, PALIN, SIG, TIME, DT, MINUTES, FPS, U, L, TAU_L, T_OVER_TAU_L, E(J), TS"
+printf '%s\n' "$HEADER" > "$CSV"
 
 for N in 1024 2048 4096 8192; do
   # shellcheck disable=SC2043
@@ -28,11 +29,11 @@ for N in 1024 2048 4096 8192; do
     RE="$(Re_from_N_K0 "$N" "$K")"
 
     echo "Running N=${N} K=${K} RE=${RE} ..."
-    # N K RE STEPS CFL backend UPDATE ITERATIONS
-    PYTHONUNBUFFERED=1 uv run -- turbulence "$N" "$K" "$RE" 1E7 0.1 auto 10 1000000 2>&1 \
+    # N K RE STEPS CFL backend UPDATE SPECTRUM ITERATIONS
+    PYTHONUNBUFFERED=1 uv run -- turbulence "$N" "$K" "$RE" 1E7 0.1 auto 10 KM3 1000000 2>&1 \
       | stdbuf -oL -eL tee -a "$LOG" \
-      | awk -v csv="$CSV" '
-          $0=="N, K0, Re, CFL, VISC, STEPS, PALIN, SIG, TIME, MINUTES, FPS" { grab=1; next }
+      | awk -v csv="$CSV" -v header="$HEADER" '
+          $0==header { grab=1; next }
           grab && !done { print >> csv; fflush(csv); done=1; grab=0 }
         '
   done

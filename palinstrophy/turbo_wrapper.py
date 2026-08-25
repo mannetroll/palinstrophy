@@ -1,7 +1,7 @@
 # turbo_wrapper.py
 from pathlib import Path
 from time import perf_counter
-from typing import Union
+from typing import Any, Union
 import numpy as np
 import math
 import os
@@ -405,8 +405,6 @@ class DnsSimulator:
     # ------------------------------------------------------------------
     def _snapshot_u8_cp(self, comp: int):
         """GPU-only: return uint8 pixels on the device (no host transfer)."""
-        import cupy as cp  # type: ignore
-
         S = self.state
         idx = int(comp) - 1
         if idx < 0 or idx > 2:
@@ -416,10 +414,8 @@ class DnsSimulator:
         pix_cp = self._float_to_pixels_gpu(field_cp)
         return pix_cp
 
-    def _make_pixels_component_u8_cp(self, var: int) -> "cp.ndarray":
+    def _make_pixels_component_u8_cp(self, var: int) -> Any:
         """GPU-only: selector used by get_frame_pixels(); returns uint8 pixels on the device."""
-        import cupy as cp  # type: ignore
-
         S = self.state
 
         if var == self.VAR_U:
