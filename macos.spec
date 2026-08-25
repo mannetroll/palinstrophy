@@ -7,12 +7,18 @@
 #   open -n ./dist/palinstrophy.app
 #
 
+from PyInstaller.utils.hooks import collect_data_files, collect_dynamic_libs
+
+
+mlx_binaries = collect_dynamic_libs("mlx")
+mlx_datas = collect_data_files("mlx", includes=["lib/mlx.metallib"])
+
 a = Analysis(
     ["palinstrophy/turbo_main.py"],
     pathex=["."],
-    binaries=[],
-    datas=[],
-    hiddenimports=[],
+    binaries=mlx_binaries,
+    datas=mlx_datas,
+    hiddenimports=["mlx._reprlib_fix"],
 )
 
 pyz = PYZ(a.pure, a.zipped_data)
