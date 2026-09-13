@@ -1,0 +1,18 @@
+{
+  "variant": "baseline",
+  "backend": "cpu",
+  "n": 512,
+  "steps": 1001,
+  "method": "CNAB2",
+  "seed": 1,
+  "t": 0.23025335249732615,
+  "dt": 0.00024305486545415613,
+  "cn": 1.0051279656123175,
+  "finite": true,
+  "source_sha256": "99ec7256828b2417764c379ef61f99a4540449b2dde63467b70b1301cac28730",
+  "array_sha256": {
+    "om2": "59dd14e023517eb3626657e38aa579b689938f40eade5bfcd6e4b7a49f9abcc9",
+    "fnm1": "c6f9559397bcb2fb1b0d35372c4b5caca0b9210a931ec03f33bec13dba6c8285",
+    "velocity": "a93bcf1cf3729c3722fe8b22277c8c125f38fbb34c5ddbba8bea458cecbd4af0"
+  }
+}

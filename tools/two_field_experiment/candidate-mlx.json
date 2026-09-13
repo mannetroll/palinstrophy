@@ -1,0 +1,18 @@
+{
+  "variant": "two-field",
+  "backend": "mlx",
+  "n": 512,
+  "steps": 1001,
+  "method": "CNAB2",
+  "seed": 1,
+  "t": 0.2302539565340289,
+  "dt": 0.00024305673305930544,
+  "cn": 1.0051286731654019,
+  "finite": true,
+  "source_sha256": "99ec7256828b2417764c379ef61f99a4540449b2dde63467b70b1301cac28730",
+  "array_sha256": {
+    "om2": "1dd20d56d5ee64480d398bcdd5cab8336e7bf263b494f2a961b08d821a6a4a87",
+    "fnm1": "586180787d36ac421bebde3b2d267274d4750f06d6456b96c906cdf127dcacc6",
+    "velocity": "b6ae7cc601c4afce387cedac8dfdc77be1c41789b5f55f5949333f356546cd69"
+  }
+}

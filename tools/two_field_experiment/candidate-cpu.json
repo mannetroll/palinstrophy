@@ -1,0 +1,18 @@
+{
+  "variant": "two-field",
+  "backend": "cpu",
+  "n": 512,
+  "steps": 1001,
+  "method": "CNAB2",
+  "seed": 1,
+  "t": 0.23025335186770707,
+  "dt": 0.00024305486145572463,
+  "cn": 1.0051279453392215,
+  "finite": true,
+  "source_sha256": "99ec7256828b2417764c379ef61f99a4540449b2dde63467b70b1301cac28730",
+  "array_sha256": {
+    "om2": "0bb872c863f9c13718ee74c0b9be7815cb5042bf13e922c997636a3c7ca1089e",
+    "fnm1": "df49f996613b2cbdc3fb57e2b031075b90540a462b5175c542ac8abf127c7d12",
+    "velocity": "82beb36a85f4ece56080475d3cca9aebbed51342f7511dafb36b13a7be1487e8"
+  }
+}

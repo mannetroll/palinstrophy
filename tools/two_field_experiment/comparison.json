@@ -1,0 +1,450 @@
+{
+  "decision": "REJECT: numerical outputs changed",
+  "baseline_reproduction": {
+    "cpu": {
+      "reference": "tools/sim_512_1001_cpu_macOS.txt",
+      "reference_records": 15,
+      "actual_records": 15,
+      "exact_match": true,
+      "differences": []
+    },
+    "mlx": {
+      "reference": "tools/sim_512_1001_gpu_macOS.txt",
+      "reference_records": 15,
+      "actual_records": 15,
+      "exact_match": true,
+      "differences": []
+    }
+  },
+  "cases": {
+    "cpu": {
+      "finite": true,
+      "changed_iteration_values": 24,
+      "compared_iteration_values": 60,
+      "first_difference": {
+        "iteration": 100,
+        "quantity": "CN",
+        "baseline": "1.00462324",
+        "candidate": "1.00462322",
+        "absolute_difference": "2E-8"
+      },
+      "final_scalars": {
+        "t": {
+          "baseline": 0.23025335249732615,
+          "candidate": 0.23025335186770707
+        },
+        "dt": {
+          "baseline": 0.00024305486545415613,
+          "candidate": 0.00024305486145572463
+        },
+        "cn": {
+          "baseline": 1.0051279656123175,
+          "candidate": 1.0051279453392215
+        }
+      },
+      "fields": {
+        "om2": {
+          "bitwise_equal": false,
+          "relative_l2": 2.3028958748796057e-06,
+          "maximum_absolute_difference": 2.7192837626742134e-07
+        },
+        "fnm1": {
+          "bitwise_equal": false,
+          "relative_l2": 8.570173820985961e-05,
+          "maximum_absolute_difference": 0.00016619453264588656
+        },
+        "velocity": {
+          "bitwise_equal": false,
+          "relative_l2": 2.524466321530749e-07,
+          "maximum_absolute_difference": 1.1324882507324219e-06
+        }
+      },
+      "iteration_differences": [
+        {
+          "iteration": 100,
+          "quantity": "CN",
+          "baseline": "1.00462324",
+          "candidate": "1.00462322",
+          "absolute_difference": "2E-8"
+        },
+        {
+          "iteration": 100,
+          "quantity": "CFLM",
+          "baseline": "352.239868",
+          "candidate": "352.239899",
+          "absolute_difference": "0.000031"
+        },
+        {
+          "iteration": 200,
+          "quantity": "T",
+          "baseline": "0.0440430486",
+          "candidate": "0.0440430482",
+          "absolute_difference": "4E-10"
+        },
+        {
+          "iteration": 200,
+          "quantity": "CN",
+          "baseline": "1.00771492",
+          "candidate": "1.00771494",
+          "absolute_difference": "2E-8"
+        },
+        {
+          "iteration": 200,
+          "quantity": "CFLM",
+          "baseline": "345.400177",
+          "candidate": "345.400146",
+          "absolute_difference": "0.000031"
+        },
+        {
+          "iteration": 300,
+          "quantity": "T",
+          "baseline": "0.0663959720",
+          "candidate": "0.0663959717",
+          "absolute_difference": "3E-10"
+        },
+        {
+          "iteration": 400,
+          "quantity": "T",
+          "baseline": "0.0889522494",
+          "candidate": "0.0889522492",
+          "absolute_difference": "2E-10"
+        },
+        {
+          "iteration": 400,
+          "quantity": "CN",
+          "baseline": "1.01013721",
+          "candidate": "1.01013722",
+          "absolute_difference": "1E-8"
+        },
+        {
+          "iteration": 400,
+          "quantity": "CFLM",
+          "baseline": "335.745758",
+          "candidate": "335.745728",
+          "absolute_difference": "0.000030"
+        },
+        {
+          "iteration": 500,
+          "quantity": "T",
+          "baseline": "0.1117369552",
+          "candidate": "0.1117369555",
+          "absolute_difference": "3E-10"
+        },
+        {
+          "iteration": 600,
+          "quantity": "T",
+          "baseline": "0.1347920251",
+          "candidate": "0.1347920258",
+          "absolute_difference": "7E-10"
+        },
+        {
+          "iteration": 700,
+          "quantity": "T",
+          "baseline": "0.1581853009",
+          "candidate": "0.1581853019",
+          "absolute_difference": "1.0E-9"
+        },
+        {
+          "iteration": 700,
+          "quantity": "CN",
+          "baseline": "1.01246672",
+          "candidate": "1.01246667",
+          "absolute_difference": "5E-8"
+        },
+        {
+          "iteration": 700,
+          "quantity": "CFLM",
+          "baseline": "320.166046",
+          "candidate": "320.166107",
+          "absolute_difference": "0.000061"
+        },
+        {
+          "iteration": 800,
+          "quantity": "T",
+          "baseline": "0.1818707284",
+          "candidate": "0.1818707287",
+          "absolute_difference": "3E-10"
+        },
+        {
+          "iteration": 800,
+          "quantity": "CN",
+          "baseline": "1.00796506",
+          "candidate": "1.00796505",
+          "absolute_difference": "1E-8"
+        },
+        {
+          "iteration": 800,
+          "quantity": "CFLM",
+          "baseline": "323.068817",
+          "candidate": "323.068848",
+          "absolute_difference": "0.000031"
+        },
+        {
+          "iteration": 900,
+          "quantity": "T",
+          "baseline": "0.2057458651",
+          "candidate": "0.2057458644",
+          "absolute_difference": "7E-10"
+        },
+        {
+          "iteration": 900,
+          "quantity": "CN",
+          "baseline": "1.00627712",
+          "candidate": "1.00627716",
+          "absolute_difference": "4E-8"
+        },
+        {
+          "iteration": 900,
+          "quantity": "CFLM",
+          "baseline": "323.138641",
+          "candidate": "323.138580",
+          "absolute_difference": "0.000061"
+        },
+        {
+          "iteration": 1000,
+          "quantity": "T",
+          "baseline": "0.2297712686",
+          "candidate": "0.2297712680",
+          "absolute_difference": "6E-10"
+        },
+        {
+          "iteration": 1001,
+          "quantity": "T",
+          "baseline": "0.2300115377",
+          "candidate": "0.2300115370",
+          "absolute_difference": "7E-10"
+        },
+        {
+          "iteration": 1001,
+          "quantity": "CN",
+          "baseline": "1.00512797",
+          "candidate": "1.00512795",
+          "absolute_difference": "2E-8"
+        },
+        {
+          "iteration": 1001,
+          "quantity": "CFLM",
+          "baseline": "320.857574",
+          "candidate": "320.857605",
+          "absolute_difference": "0.000031"
+        }
+      ]
+    },
+    "mlx": {
+      "finite": true,
+      "changed_iteration_values": 24,
+      "compared_iteration_values": 60,
+      "first_difference": {
+        "iteration": 100,
+        "quantity": "CN",
+        "baseline": "1.00462341",
+        "candidate": "1.00462339",
+        "absolute_difference": "2E-8"
+      },
+      "final_scalars": {
+        "t": {
+          "baseline": 0.23025396338666768,
+          "candidate": 0.2302539565340289
+        },
+        "dt": {
+          "baseline": 0.00024305674823735617,
+          "candidate": 0.00024305673305930544
+        },
+        "cn": {
+          "baseline": 1.005128672676914,
+          "candidate": 1.0051286731654019
+        }
+      },
+      "fields": {
+        "om2": {
+          "bitwise_equal": false,
+          "relative_l2": 2.402618887441399e-06,
+          "maximum_absolute_difference": 2.686345037418596e-07
+        },
+        "fnm1": {
+          "bitwise_equal": false,
+          "relative_l2": 8.994580376470346e-05,
+          "maximum_absolute_difference": 0.0001608862499941641
+        },
+        "velocity": {
+          "bitwise_equal": false,
+          "relative_l2": 2.6754351221582977e-07,
+          "maximum_absolute_difference": 1.430511474609375e-06
+        }
+      },
+      "iteration_differences": [
+        {
+          "iteration": 100,
+          "quantity": "CN",
+          "baseline": "1.00462341",
+          "candidate": "1.00462339",
+          "absolute_difference": "2E-8"
+        },
+        {
+          "iteration": 100,
+          "quantity": "CFLM",
+          "baseline": "352.239187",
+          "candidate": "352.239225",
+          "absolute_difference": "0.000038"
+        },
+        {
+          "iteration": 200,
+          "quantity": "T",
+          "baseline": "0.0440431003",
+          "candidate": "0.0440430998",
+          "absolute_difference": "5E-10"
+        },
+        {
+          "iteration": 200,
+          "quantity": "CN",
+          "baseline": "1.00771514",
+          "candidate": "1.00771517",
+          "absolute_difference": "3E-8"
+        },
+        {
+          "iteration": 200,
+          "quantity": "CFLM",
+          "baseline": "345.399371",
+          "candidate": "345.399332",
+          "absolute_difference": "0.000039"
+        },
+        {
+          "iteration": 300,
+          "quantity": "T",
+          "baseline": "0.0663960567",
+          "candidate": "0.0663960563",
+          "absolute_difference": "4E-10"
+        },
+        {
+          "iteration": 300,
+          "quantity": "CN",
+          "baseline": "1.00911138",
+          "candidate": "1.00911136",
+          "absolute_difference": "2E-8"
+        },
+        {
+          "iteration": 300,
+          "quantity": "CFLM",
+          "baseline": "340.466384",
+          "candidate": "340.466422",
+          "absolute_difference": "0.000038"
+        },
+        {
+          "iteration": 400,
+          "quantity": "T",
+          "baseline": "0.0889523697",
+          "candidate": "0.0889523688",
+          "absolute_difference": "9E-10"
+        },
+        {
+          "iteration": 500,
+          "quantity": "T",
+          "baseline": "0.1117371150",
+          "candidate": "0.1117371138",
+          "absolute_difference": "1.2E-9"
+        },
+        {
+          "iteration": 600,
+          "quantity": "T",
+          "baseline": "0.1347922321",
+          "candidate": "0.1347922306",
+          "absolute_difference": "1.5E-9"
+        },
+        {
+          "iteration": 600,
+          "quantity": "CN",
+          "baseline": "1.01469745",
+          "candidate": "1.01469742",
+          "absolute_difference": "3E-8"
+        },
+        {
+          "iteration": 600,
+          "quantity": "CFLM",
+          "baseline": "321.495511",
+          "candidate": "321.495550",
+          "absolute_difference": "0.000039"
+        },
+        {
+          "iteration": 700,
+          "quantity": "T",
+          "baseline": "0.1581855593",
+          "candidate": "0.1581855571",
+          "absolute_difference": "2.2E-9"
+        },
+        {
+          "iteration": 800,
+          "quantity": "T",
+          "baseline": "0.1818710669",
+          "candidate": "0.1818710640",
+          "absolute_difference": "2.9E-9"
+        },
+        {
+          "iteration": 800,
+          "quantity": "CN",
+          "baseline": "1.00796678",
+          "candidate": "1.00796673",
+          "absolute_difference": "5E-8"
+        },
+        {
+          "iteration": 800,
+          "quantity": "CFLM",
+          "baseline": "323.065048",
+          "candidate": "323.065145",
+          "absolute_difference": "0.000097"
+        },
+        {
+          "iteration": 900,
+          "quantity": "T",
+          "baseline": "0.2057463250",
+          "candidate": "0.2057463201",
+          "absolute_difference": "4.9E-9"
+        },
+        {
+          "iteration": 900,
+          "quantity": "CN",
+          "baseline": "1.00627818",
+          "candidate": "1.00627819",
+          "absolute_difference": "1E-8"
+        },
+        {
+          "iteration": 900,
+          "quantity": "CFLM",
+          "baseline": "323.135320",
+          "candidate": "323.135339",
+          "absolute_difference": "0.000019"
+        },
+        {
+          "iteration": 1000,
+          "quantity": "T",
+          "baseline": "0.2297718763",
+          "candidate": "0.2297718695",
+          "absolute_difference": "6.8E-9"
+        },
+        {
+          "iteration": 1000,
+          "quantity": "CN",
+          "baseline": "1.00643461",
+          "candidate": "1.00643462",
+          "absolute_difference": "1E-8"
+        },
+        {
+          "iteration": 1001,
+          "quantity": "T",
+          "baseline": "0.2300121468",
+          "candidate": "0.2300121400",
+          "absolute_difference": "6.8E-9"
+        },
+        {
+          "iteration": 1001,
+          "quantity": "CFLM",
+          "baseline": "320.854209",
+          "candidate": "320.854228",
+          "absolute_difference": "0.000019"
+        }
+      ]
+    }
+  },
+  "performance_benchmark": "Not run after correctness rejection. Run logs retain incidental elapsed times.",
+  "linux_validation": "No Linux/CUDA execution available on this Apple M1 Max; reference files remain unchanged.",
+  "baseline_files_and_production_sources_unchanged": true
+}

@@ -1,0 +1,16 @@
+{
+  "cpu": {
+    "reference": "tools/sim_512_1001_cpu_macOS.txt",
+    "reference_records": 15,
+    "actual_records": 15,
+    "exact_match": true,
+    "differences": []
+  },
+  "mlx": {
+    "reference": "tools/sim_512_1001_gpu_macOS.txt",
+    "reference_records": 15,
+    "actual_records": 15,
+    "exact_match": true,
+    "differences": []
+  }
+}

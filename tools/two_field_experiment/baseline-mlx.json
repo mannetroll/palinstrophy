@@ -1,0 +1,18 @@
+{
+  "variant": "baseline",
+  "backend": "mlx",
+  "n": 512,
+  "steps": 1001,
+  "method": "CNAB2",
+  "seed": 1,
+  "t": 0.23025396338666768,
+  "dt": 0.00024305674823735617,
+  "cn": 1.005128672676914,
+  "finite": true,
+  "source_sha256": "99ec7256828b2417764c379ef61f99a4540449b2dde63467b70b1301cac28730",
+  "array_sha256": {
+    "om2": "29404693148e8b9fe7b1f4b2254428921a607bd459290ab406d7274ffb6b889e",
+    "fnm1": "5253a3eb88f067bc39f1c197a17acbd6c9e2ba4042bf76caa1419ff904821f24",
+    "velocity": "25582911998412528d311944be0df1d11186df3340ed02c408e9d94376a80da6"
+  }
+}
