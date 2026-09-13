@@ -168,6 +168,12 @@ fields plus energy and eddy-turnover-time differences. Use a small CFL when
 checking method agreement; the methods are not bitwise identical, but the
 field differences should shrink as the timestep is reduced.
 
+MLX arithmetic regression tests use Python's built-in `unittest` (no extra
+dependency): `uv run python -m unittest discover -s tests -v`. They require an
+accessible Apple GPU and otherwise skip. The tests share SciPy FFT results
+between the backends to check exact agreement of CFL scaling and both time
+integrators; production MLX FFTs can still introduce float32 rounding differences.
+
     # Apple Silicon GPU run (MLX / Metal)
     $ uv run sim 1024 10000 10 1001 0.75 mlx 100 KM3
 
