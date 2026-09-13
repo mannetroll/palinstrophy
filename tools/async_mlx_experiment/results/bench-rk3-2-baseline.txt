@@ -1,0 +1,22 @@
+
+CPU: CuPy not installed
+MLX: Apple M1 Max (48.0 GiB working set)
+Python: 3.13.11 (CPython) | OS: macOS-15.7.9-arm64-arm-64bit-Mach-O
+FFT: mlx.core.fft on Apple M1 Max (48.0 GiB working set)
+--- INITIALIZING MLX --- 2026-09-13 11:11
+ N=1024, K0=5, Re=27,380.9
+ Start spec. = KM3 k^-3
+ Generate PAO random spectrum and shell-rescale to k^-3... (Numba)
+ N           = 1024
+ Reynolds n. = 27380.852
+ K0          = 5
+ Energy      = 0.9872676
+ WiWi        = 164.81192
+ Time scale  = 82.009322
+ Kolmogorov  = 0.0016866671
+ Viscosity   = 3.6521873e-05
+ dx/Kol.     = 3.6378983
+ PAO seed in = 4895
+ PAO seed out= 1840
+ KM3 INITIALIZATION OK. VISC=3.6521873e-05
+ DNS initialization took 0.493 seconds

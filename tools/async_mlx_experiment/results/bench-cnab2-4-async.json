@@ -1,0 +1,69 @@
+{
+  "variant": "async",
+  "mode": "benchmark",
+  "output": "/tmp/palinstrophy-async-20260913/bench-cnab2-4-async",
+  "backend": "mlx",
+  "n": 1024,
+  "steps": 1000,
+  "update": 100,
+  "method": "CNAB2",
+  "spectrum": "PAO",
+  "seed": 1,
+  "re": 10000,
+  "k0": 10,
+  "cfl": 0.25,
+  "warmup": 100,
+  "platform": "macOS-15.7.9-arm64-arm-64bit-Mach-O",
+  "source_sha256": "99ec7256828b2417764c379ef61f99a4540449b2dde63467b70b1301cac28730",
+  "mlx_version": "0.32.0",
+  "device": {
+    "device_name": "Apple M1 Max",
+    "max_recommended_working_set_size": 51539607552,
+    "memory_size": 68719476736,
+    "architecture": "applegpu_g13s",
+    "max_buffer_length": 38654705664,
+    "resource_limit": 499000
+  },
+  "measurement": {
+    "wall_seconds": 3.513326833024621,
+    "simulation_time": 0.12303074059767309,
+    "T_R": 0.03501830215202495,
+    "steps_per_second": 284.630507643122,
+    "frame_ms": [
+      350.27545801131055,
+      351.23604198452085,
+      353.48858300130814,
+      352.7442920021713,
+      348.5059170052409,
+      355.5042080115527,
+      354.43054197821766,
+      349.1439580102451,
+      350.69074999773875,
+      347.24945802008733
+    ],
+    "frame_median_ms": 350.9633959911298,
+    "frame_p95_ms": 355.0210582965519,
+    "frame_max_ms": 355.5042080115527
+  },
+  "scalars": {
+    "t": 0.13497798790055868,
+    "dt": 0.0001272498880370396,
+    "cn": 1.0034516303610903,
+    "cnm1": 1.004193045876395
+  },
+  "process_max_rss_bytes": 372211712,
+  "memory_bytes": {
+    "active": 95517749,
+    "peak": 580426897,
+    "cache": 562898596
+  },
+  "finite": true,
+  "array_sha256": {
+    "om2": "9326169f1601da1119987f37e69cb6481c14ef2d9cb8adeb589c1a4f01001fbc",
+    "fnm1": "a0fded9218c8bad6d70e4fe9bd9fa2a62f9800204d77a2acf09926f1e9e87b5b",
+    "uc_full": "27e90c69d1c4130614293e63cdd73b29bcbda596dd395a388ddb20d794155e97",
+    "ur_full": "51596e22392dd5fc9d2712eba65406ea2d3aa44159c94c90300423dd1083f884",
+    "uc": "51799d539f938804011aaf815c20a1a0e48c5ea74b11c7d049d609f92d7f9232",
+    "ur": "cfadd44a103cbd6d5726fa07b27d7aad2f67ed3930ff96901c486a5beaf7e723"
+  }
+}

@@ -1,0 +1,35 @@
+{
+  "variant": "async",
+  "mode": "cli",
+  "output": "/tmp/palinstrophy-async-20260913/mlx-check",
+  "backend": "mlx",
+  "n": 128,
+  "steps": 200,
+  "update": 50,
+  "method": "CHECK",
+  "spectrum": "KM3",
+  "seed": 4895,
+  "re": 10000,
+  "k0": 10,
+  "cfl": 0.05,
+  "warmup": 60,
+  "platform": "macOS-15.7.9-arm64-arm-64bit-Mach-O",
+  "source_sha256": "99ec7256828b2417764c379ef61f99a4540449b2dde63467b70b1301cac28730",
+  "mlx_version": "0.32.0",
+  "device": {
+    "device_name": "Apple M1 Max",
+    "max_recommended_working_set_size": 51539607552,
+    "memory_size": 68719476736,
+    "architecture": "applegpu_g13s",
+    "max_buffer_length": 38654705664,
+    "resource_limit": 499000
+  },
+  "process_max_rss_bytes": 159662080,
+  "memory_bytes": {
+    "active": 24,
+    "peak": 21863508,
+    "cache": 22160520
+  },
+  "finite": true,
+  "array_sha256": {}
+}

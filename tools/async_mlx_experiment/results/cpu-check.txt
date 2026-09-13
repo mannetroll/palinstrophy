@@ -1,0 +1,97 @@
+
+CPU: CuPy not installed
+MLX: Apple M1 Max (48.0 GiB working set)
+Python: 3.13.11 (CPython) | OS: macOS-15.7.9-arm64-arm-64bit-Mach-O
+
+$ SCIPYTURBO_SEED=4895 uv run sim 128 10000 10 200 0.05 cpu 50 KM3 CHECK
+--- CHECK TIME STEPPERS ---
+ Compare CNAB2 and LS_IMEX_RK3 from the same PAO seed and report final-field errors.
+--- RUN DNS ---
+ N   = 128
+ Re  = 10000.0
+ K0  = 10.0
+ Steps = 200
+ CFL  = 0.05
+ Update = 50
+ Start spectrum = KM3
+ Method = CNAB2
+ requested = cpu
+FFT workers (CPU): 8
+--- INITIALIZING SciPy --- 2026-09-13 11:13
+ N=128, K0=10, Re=10,000.0
+ Start spec. = KM3 k^-3
+ Generate PAO random spectrum and shell-rescale to k^-3... (Numba)
+
+CPU: CuPy not installed
+MLX: Apple M1 Max (48.0 GiB working set)
+Python: 3.13.11 (CPython) | OS: macOS-15.7.9-arm64-arm-64bit-Mach-O
+ N           = 128
+ Reynolds n. = 10000
+ K0          = 10
+ Energy      = 0.9968169
+ WiWi        = 290.57115
+ Time scale  = 17.152717
+ Kolmogorov  = 0.002422071
+ Viscosity   = 9.9999997e-05
+ dx/Kol.     = 20.2667
+ PAO seed in = 4895
+ PAO seed out= 658
+ KM3 INITIALIZATION OK. VISC=9.9999997e-05
+ effective = cpu (xp = scipy)
+ DNS INITIALIZATION took 0.099 seconds
+ scipy.fft workers in-context = 8
+ [NEXTDT INIT] CFLM=    84.4427 DT=  0.0001885 CN=  1.0000000
+ Initial DT=  0.0001885 CN=  1.0000000
+ ITERATION      1 T=0.0000000000 DT=0.00018845 CN=0.99986036 CFLM=84.501656 TAU_L=0.530233
+ ITERATION     50 T=0.0092341071 DT=0.00018782 CN=0.99666030 CFLM=85.888664 TAU_L=0.530418
+ ITERATION    100 T=0.0186257995 DT=0.00018731 CN=0.99728581 CFLM=85.903236 TAU_L=0.530816
+ ITERATION    150 T=0.0279918831 DT=0.00018674 CN=0.99693471 CFLM=86.290596 TAU_L=0.531417
+ ITERATION    200 T=0.0373293230 DT=0.00018595 CN=0.99578353 CFLM=87.064850 TAU_L=0.532209
+ Elapsed CPU time for 200 steps (s) = 0.091932
+ Final T=0.03751606  CN=0.99578353  DT=0.00018594994
+ FPS = 2175.521
+--- RUN DNS ---
+ N   = 128
+ Re  = 10000.0
+ K0  = 10.0
+ Steps = 200
+ CFL  = 0.05
+ Update = 50
+ Start spectrum = KM3
+ Method = LS_IMEX_RK3
+ requested = cpu
+FFT workers (CPU): 8
+--- INITIALIZING SciPy --- 2026-09-13 11:13
+ N=128, K0=10, Re=10,000.0
+ Start spec. = KM3 k^-3
+ Generate PAO random spectrum and shell-rescale to k^-3... (Numba)
+ N           = 128
+ Reynolds n. = 10000
+ K0          = 10
+ Energy      = 0.9968169
+ WiWi        = 290.57115
+ Time scale  = 17.152717
+ Kolmogorov  = 0.002422071
+ Viscosity   = 9.9999997e-05
+ dx/Kol.     = 20.2667
+ PAO seed in = 4895
+ PAO seed out= 658
+ KM3 INITIALIZATION OK. VISC=9.9999997e-05
+ effective = cpu (xp = scipy)
+ DNS INITIALIZATION took 0.006 seconds
+ scipy.fft workers in-context = 8
+ [NEXTDT INIT] CFLM=    84.4427 DT=  0.0001885 CN=  1.0000000
+ Initial DT=  0.0001885 CN=  1.0000000
+ ITERATION      1 T=0.0000000000 DT=0.00018845 CN=0.99986209 CFLM=84.500923 TAU_L=0.530234
+ ITERATION     50 T=0.0092341228 DT=0.00018782 CN=0.99665955 CFLM=85.888840 TAU_L=0.530419
+ ITERATION    100 T=0.0186258246 DT=0.00018731 CN=0.99728448 CFLM=85.903732 TAU_L=0.530817
+ ITERATION    150 T=0.0279919052 DT=0.00018674 CN=0.99693589 CFLM=86.290108 TAU_L=0.531419
+ ITERATION    200 T=0.0373293526 DT=0.00018595 CN=0.99578689 CFLM=87.063286 TAU_L=0.532210
+ Elapsed CPU time for 200 steps (s) = 0.26968058
+ Final T=0.03751609  CN=0.99578689  DT=0.00018595072
+ FPS = 741.61809
+--- CHECK RESULT ---
+ OM2 relative L2=5.101545e-05 Linf=4.548458e-05
+ U   relative L2=1.950500e-05 Linf=6.792670e-05
+ Energy CNAB2=9.97319829e-01 LS_IMEX_RK3=9.97319720e-01 diff=1.093489e-07
+ Tau_L  CNAB2=5.32208990e-01 LS_IMEX_RK3=5.32210419e-01 diff=1.429489e-06

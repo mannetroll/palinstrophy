@@ -1,0 +1,16 @@
+{
+  "revision": "b4a16e6fee02976f68a5591e219b60622f6be863",
+  "files": {
+    "tools/sim_512_1001_cpu_linux.txt": "b9f3ad86db6e97e6547f0a78c184c2060451e6814c64afe808dad871d3a96581",
+    "tools/sim_512_1001_cpu_macOS.txt": "6393e1aee4a94c63b183e904c8cb441aa0e94eac66183ddd6a6d0c39d63ca6b0",
+    "tools/sim_512_1001_gpu_linux.txt": "6ae3d6f420e6bc86eec074f66b03f771a3feef314db31e31f7a955a97b813a9d",
+    "tools/sim_512_1001_gpu_macOS.txt": "61e89697eedb3c840c1a1b0c6c6d1143d56df0799994b802cd405444c2970525",
+    "palinstrophy/__init__.py": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "palinstrophy/timeaverage_spectrum.py": "1ac179cf8abe3d04bf580578c6b56f42b15c8991f933ef89731e2ebc4af3e15e",
+    "palinstrophy/turbo_main.py": "56b2b69aac9de9f9e2f31e8d1f496aed8098b9211b5e44dcf983b7a4eb27db58",
+    "palinstrophy/turbo_postprocess.py": "edb7091535c90a8b1320f09e337455333e8bf93eb96a9a99a13e92f22ca64100",
+    "palinstrophy/turbo_simulator.py": "99ec7256828b2417764c379ef61f99a4540449b2dde63467b70b1301cac28730",
+    "palinstrophy/turbo_viewcase.py": "2b02039d188cbe45f82343e7fd6f3b0727d55d4141c0ce3fe1262657fa759470",
+    "palinstrophy/turbo_wrapper.py": "9b1f999eeb5d0ef8c7718901d47a29507ebd831f48c832b3a88c64258c31edeb"
+  }
+}
