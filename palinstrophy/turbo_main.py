@@ -12,7 +12,7 @@ import time
 from typing import Optional, cast, get_args
 
 from PySide6.QtCore import QEvent, QPoint, QSize, QTimer, Qt, QStandardPaths
-from PySide6.QtGui import QColor, QIcon, QImage, QPixmap, QFontDatabase, QPalette, qRgb, QKeySequence, QShortcut, QPainter
+from PySide6.QtGui import QColor, QIcon, QImage, QPixmap, QFontDatabase, QPalette, qRgb, QKeySequence, QShortcut, QPainter, QRegion
 from PySide6.QtWidgets import (
     QApplication,
     QMainWindow,
@@ -687,6 +687,37 @@ class _GuiBenchmark:
         print(f"[BENCHMARK] wrote {self.output_path}")
 
 
+class _MainImageLabel(QLabel):
+    """Paint exposed margins without repainting the background under the image."""
+
+    def setPixmap(self, pixmap: QPixmap) -> None:
+        super().setPixmap(pixmap)
+        self._update_opaque_paint()
+
+    def _update_opaque_paint(self) -> None:
+        pixmap = self.pixmap()
+        self.setAttribute(Qt.WidgetAttribute.WA_OpaquePaintEvent,
+                          self.isEnabled() and not pixmap.isNull() and not pixmap.hasAlphaChannel())
+
+    def changeEvent(self, event) -> None:
+        super().changeEvent(event)
+        if event.type() == QEvent.Type.EnabledChange:
+            self._update_opaque_paint()
+
+    def paintEvent(self, event) -> None:
+        if self.testAttribute(Qt.WidgetAttribute.WA_OpaquePaintEvent):
+            image_rect = self.style().itemPixmapRect(
+                self.contentsRect(), self.alignment(), self.pixmap()
+            )
+            margins = QRegion(self.rect()).subtracted(QRegion(image_rect))
+            if not margins.isEmpty():
+                painter = QPainter(self)
+                painter.setClipRegion(margins)
+                painter.fillRect(self.rect(), QApplication.palette().window())
+                painter.end()
+        super().paintEvent(event)
+
+
 class MainWindow(QMainWindow):
     def __init__(self, sim: DnsSimulator, steps: str, update: str, iterations: int, mov: int = 0) -> None:
         super().__init__()
@@ -732,7 +763,7 @@ class MainWindow(QMainWindow):
         self._title_drag_offset: Optional[QPoint] = None
 
         # --- central image label ---
-        self.image_label = QLabel()
+        self.image_label = _MainImageLabel()
         self.image_label.setContentsMargins(0, 0, 0, 0)
         # allow shrinking when grid size becomes smaller
         self.image_label.setSizePolicy(
