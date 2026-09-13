@@ -2177,9 +2177,10 @@ class MainWindow(QMainWindow):
             if movie_due:
                 self.sim._next_dt_pending = True
             frame_start_ns = time.perf_counter_ns() if benchmark is not None else 0
-            pixels = self.sim.get_frame_pixels()
+            display_stride = max(1, int(self._display_scale())) if self.sim.state.backend == "mlx" else 1
+            pixels = self.sim.get_frame_pixels(display_stride=display_stride)
             frame_end_ns = time.perf_counter_ns() if benchmark is not None else 0
-            self._update_image(pixels)
+            self._update_image(pixels, display_scaled=display_stride > 1)
             image_end_ns = time.perf_counter_ns() if benchmark is not None else 0
             if benchmark is not None:
                 benchmark.record_stage("frame_extract", frame_start_ns, frame_end_ns)
@@ -2379,7 +2380,7 @@ class MainWindow(QMainWindow):
         palinstrophy = float(vals[3])
         return palinstrophy / (total * kmax2)
 
-    def _update_image(self, pixels: np.ndarray) -> None:
+    def _update_image(self, pixels: np.ndarray, *, display_scaled: bool = False) -> None:
         benchmark = self._benchmark
         stage_start_ns = time.perf_counter_ns() if benchmark is not None else 0
         pixels = np.asarray(pixels, dtype=np.uint8)
@@ -2439,7 +2440,8 @@ class MainWindow(QMainWindow):
         # colour stays table[lut[pixel]], without remapping the image pixels.
         levels = np.arange(256, dtype=np.float32)
         lut = ((levels - lo) * inv).round().clip(0.0, 255.0).astype(np.uint8)
-        pixels = self._upscale_downscale_u8(pixels)
+        if not display_scaled:
+            pixels = self._upscale_downscale_u8(pixels)
         normalize_end_ns = time.perf_counter_ns() if benchmark is not None else 0
         h, w = pixels.shape
         qimg = QImage(

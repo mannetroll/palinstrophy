@@ -345,11 +345,11 @@ class DnsSimulator:
         pix = cp.where(is_const, cp.uint8(128), pix)
         return pix
 
-    def _float_to_pixels_mlx(self, field_mx) -> np.ndarray:
+    def _float_to_pixels_mlx(self, field_mx, display_stride: int = 1) -> np.ndarray:
         """
         MLX path: normalize→uint8 on the Metal GPU, then hand the uint8 buffer
-        to the host. Unified memory makes that last step a view, so only the
-        normalization is worth keeping on-device.
+        to the host. When requested by the main image, downsample on-device
+        before exposing a contiguous display-sized buffer to NumPy.
 
         The image mean/std the GUI needs for its display normalization are
         reduced here too, while the pixels are still on the GPU — scanning them
@@ -375,6 +375,10 @@ class DnsSimulator:
             _MLX_FRAME_NORMALIZER = mx.compile(normalize)
 
         pix, mean, std = _MLX_FRAME_NORMALIZER(field_mx)
+        if display_stride > 1:
+            # Keep the original full-field reductions and nearest-neighbor
+            # samples; only the displayed pixel buffer becomes smaller.
+            pix = mx.contiguous(pix[::display_stride, ::display_stride])
 
         mx.eval(pix, mean, std)
         self._frame_stats = (float(mean.item()), float(std.item()))
@@ -471,6 +475,19 @@ class DnsSimulator:
         return self._snapshot(comp)
 
     # ------------------------------------------------------------------
+    def _component_field(self, var: int):
+        """Return the selected physical field on its existing backend."""
+        S = self.state
+        if var == self.VAR_V:
+            return S.ur_full[1, :, :]
+        if var == self.VAR_ENERGY:
+            return dns_all.dns_kinetic(S)
+        if var == self.VAR_OMEGA:
+            return dns_all.dns_om2_phys(S)
+        if var == self.VAR_STREAM:
+            return dns_all.dns_stream_func(S)
+        return S.ur_full[0, :, :]
+
     def make_pixels_component(self, var: int | None = None) -> np.ndarray:
         """
         High-level selector used by the GUI:
@@ -483,35 +500,18 @@ class DnsSimulator:
         if var is None:
             var = self.current_var
 
-        S = self.state
-
-        if var == self.VAR_U:
-            plane = self._snapshot(1)
-
-        elif var == self.VAR_V:
-            plane = self._snapshot(2)
-
-        elif var == self.VAR_ENERGY:
-            plane = self._field_to_pixels(dns_all.dns_kinetic(S))
-
-        elif var == self.VAR_OMEGA:
-            plane = self._field_to_pixels(dns_all.dns_om2_phys(S))
-
-        elif var == self.VAR_STREAM:
-            plane = self._field_to_pixels(dns_all.dns_stream_func(S))
-
-        else:
-            plane = self._snapshot(1)
-
-        return plane
+        return self._field_to_pixels(self._component_field(var))
 
     # ------------------------------------------------------------------
-    def get_frame_pixels(self) -> np.ndarray:
-        """Used by the Qt app worker thread.
+    def get_frame_pixels(self, *, display_stride: int = 1) -> np.ndarray:
+        """Return contiguous uint8 pixels, optionally downsampled on MLX.
 
-        Return an 8-bit contiguous array so the GUI can push it straight into a QImage.
+        The default remains a full-grid frame. A stride greater than one is
+        for the MLX main image; its normalization statistics remain full-grid.
         """
         S = self.state
+        if display_stride < 1 or (display_stride != 1 and S.backend != "mlx"):
+            raise ValueError("display_stride must be positive; downsampling requires MLX")
         self._frame_stats = None  # only a backend that reduces them refills this
 
         if S.backend == "gpu":
@@ -531,8 +531,10 @@ class DnsSimulator:
             self.dt = float(S.dt)
             self.cn = float(S.cn)
         else:
-            # CPU path unchanged
-            plane = self.make_pixels_component(self.current_var)
+            if display_stride > 1:
+                plane = self._float_to_pixels_mlx(self._component_field(self.current_var), display_stride)
+            else:
+                plane = self.make_pixels_component(self.current_var)
 
             # Keep the same NEXTDT cadence on CPU too (no device sync cost),
             # but still only do it at the render tick.
