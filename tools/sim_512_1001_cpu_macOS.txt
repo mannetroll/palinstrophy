@@ -1,17 +1,22 @@
 $ SCIPYTURBO_SEED=1 uv run sim 512 10000 10 1001 0.25 cpu 100 PAO CNAB2 > tools/sim_512_1001_cpu_macOS.txt
 
 CPU: CuPy not installed
-Python: 3.13.11 (CPython) | OS: macOS-15.7.5-arm64-arm-64bit-Mach-O
+MLX: Apple M1 Max (48.0 GiB working set)
+Python: 3.13.11 (CPython) | OS: macOS-15.7.9-arm64-arm-64bit-Mach-O
+
+$ SCIPYTURBO_SEED=1 uv run sim 512 10000 10 1001 0.25 cpu 100 PAO CNAB2
 --- RUN DNS ---
  N   = 512
  Re  = 10000.0
  K0  = 10.0
  Steps = 1001
  CFL  = 0.25
+ Update = 100
  Start spectrum = PAO
+ Method = CNAB2
  requested = cpu
 FFT workers (CPU): 8
---- INITIALIZING SciPy/CuPy --- 2026-05-07 08:49
+--- INITIALIZING SciPy --- 2026-09-13 10:59
  N=512, K0=10, Re=10,000.0
  Start spec. = PAO k*exp(-(k/K0)^2)
  Generate PAO random spectrum... (Numba)
@@ -24,10 +29,11 @@ FFT workers (CPU): 8
  Kolmogorov  = 0.0031622776
  Viscosity   = 9.9999997e-05
  dx/Kol.     = 3.8806987
- PAO seed    = 149
+ PAO seed in = 1
+ PAO seed out= 149
  PAO INITIALIZATION OK. VISC=9.9999997e-05
  effective = cpu (xp = scipy)
- DNS INITIALIZATION took 0.182 seconds
+ DNS INITIALIZATION took 0.225 seconds
  scipy.fft workers in-context = 8
  [NEXTDT INIT] CFLM=   360.4001 DT=  0.0002208 CN=  1.0000000
  Initial DT=  0.0002208 CN=  1.0000000
@@ -43,6 +49,6 @@ FFT workers (CPU): 8
  ITERATION    900 T=0.2057458651 DT=0.00024027 CN=1.00627712 CFLM=323.138641 TAU_L=1.080144
  ITERATION   1000 T=0.2297712686 DT=0.00024181 CN=1.00643372 CFLM=320.879303 TAU_L=1.085964
  ITERATION   1001 T=0.2300115377 DT=0.00024305 CN=1.00512797 CFLM=320.857574 TAU_L=1.086023
- Elapsed CPU time for 1001 steps (s) = 4.9008597
+ Elapsed CPU time for 1001 steps (s) = 4.4913855
  Final T=0.23025335  CN=1.005128  DT=0.00024305487
- FPS = 204.24988
+ FPS = 222.87109
