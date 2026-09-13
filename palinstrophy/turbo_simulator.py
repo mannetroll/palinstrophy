@@ -2009,26 +2009,29 @@ def _dns_step3_mlx(S: DnsState) -> None:
     into its own kernels, so the scratch-buffer reuse the other backends need
     would only get in the way.
     """
-    visc = float(S.visc)
-    dt = float(S.dt)
-    cnm1 = float(S.cnm1)
+    # Match the CPU's float32 rounding at each scalar operation, then pass
+    # the rounded values to MLX as Python scalars.
+    visc = _np.float32(S.visc)
+    dt = _np.float32(S.dt)
+    cnm1 = _np.float32(S.cnm1)
+    half = _np.float32(0.5)
 
     K2 = S.step3_K2
     om2 = S.om2
 
     fn = _compute_nonlinear_vorticity_term_mlx(S)
 
-    ARG = K2 * _np.float32(0.5 * visc * dt).item()
+    ARG = K2 * (half * visc * dt).item()
     DEN = ARG + 1.0
 
-    c2 = _np.float32(0.5 * dt * (2.0 + cnm1)).item()
-    c3 = _np.float32(-0.5 * dt * cnm1).item()
+    c2 = (half * dt * (_np.float32(2.0) + cnm1)).item()
+    c3 = (-half * dt * cnm1).item()
 
     num = om2 - om2 * ARG
     num = num + fn * c2
     num = num + S.fnm1 * c3
 
-    S.om2 = num / DEN
+    S.om2 = _div_by_real(S.xp, num, DEN)
     S.fnm1 = fn
 
     _reconstruct_velocity_from_om2_mlx(S)
@@ -2364,22 +2367,22 @@ def dns_step_ls_imex_rk3(S: DnsState) -> None:
         return
 
     if S.backend == "mlx":
-        dt_f = float(S.dt)
-        visc_f = float(S.visc)
+        dt_f = _np.float32(S.dt)
+        visc_f = _np.float32(S.visc)
         K2 = S.step3_K2
         for stage in range(3):
-            a = float(alpha_vals[stage])
-            b = float(beta_vals[stage])
+            a = alpha_vals[stage]
+            b = beta_vals[stage]
             dns_step2b(S)
             fn = _compute_nonlinear_vorticity_term_mlx(S)
 
-            rhs = 1.0 - K2 * _np.float32(b * dt_f * visc_f).item()
+            rhs = 1.0 - K2 * (b * dt_f * visc_f).item()
             num = S.om2 * rhs
-            num = num + fn * _np.float32(a * dt_f).item()
-            num = num + S.fnm1 * _np.float32(b * dt_f).item()
-            den = K2 * _np.float32(a * dt_f * visc_f).item() + 1.0
+            num = num + fn * (a * dt_f).item()
+            num = num + S.fnm1 * (b * dt_f).item()
+            den = K2 * (a * dt_f * visc_f).item() + 1.0
 
-            S.om2 = num / den
+            S.om2 = _div_by_real(xp, num, den)
             S.fnm1 = fn
 
             _reconstruct_velocity_from_om2_mlx(S)
@@ -2603,10 +2606,9 @@ def compute_cflm(S: DnsState):
         return CFLM
 
     if S.backend == "mlx":
-        # Reduce on-device, then pull the single scalar back to the host so the
-        # timestep update can stay in plain Python (no device scalars for MLX).
+        # Scale in float32 before returning the host scalar, as on the CPU.
         peak = xp.max(xp.abs(u) + xp.abs(w))
-        return float(peak.item()) * S.inv_dx
+        return float((peak * _f32(xp, S.inv_dx)).item())
 
     # CPU (or fallback): keep current code path
     tmp = S.cfl_tmp[:NZ3D2, :NX3D2]
