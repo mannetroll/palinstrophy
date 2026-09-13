@@ -1,4 +1,4 @@
-$ uv run sim 512 10000 10 1001 0.25 gpu PAO > tools/sim_512_1001_gpu_linux.txt
+$ SCIPYTURBO_SEED=1 uv run sim 512 10000 10 1001 0.25 gpu 100 PAO CNAB2 > tools/sim_512_1001_gpu_linux.txt
 
 GPU: NVIDIA GeForce RTX 3090
 GPU driver: NVIDIA driver 591.44 | CUDA driver 13.1 | CUDA runtime 13.0
@@ -28,7 +28,7 @@ FFT plan_mod: cupyx.scipy.fft
  PAO seed    = 149
  PAO INITIALIZATION OK. VISC=9.9999997e-05
  effective = gpu (xp = cupy)
- DNS INITIALIZATION took 0.427 seconds
+ DNS INITIALIZATION took 0.487 seconds
  create_dns_state: GPU memory ≈ 66.00 MiB  (pool used 36.54 MiB)
  scipy.fft workers in-context = 1
  [NEXTDT INIT] CFLM=   360.4001 DT=  0.0002208 CN=  1.0000000
@@ -45,6 +45,6 @@ FFT plan_mod: cupyx.scipy.fft
  ITERATION    900 T=0.2057460608 DT=0.00024027 CN=1.00627780 CFLM=323.136719 TAU_L=1.080144
  ITERATION   1000 T=0.2297715434 DT=0.00024182 CN=1.00643432 CFLM=320.877350 TAU_L=1.085964
  ITERATION   1001 T=0.2300118132 DT=0.00024306 CN=1.00512838 CFLM=320.855621 TAU_L=1.086023
- Elapsed CPU time for 1001 steps (s) = 0.160454
+ Elapsed CPU time for 1001 steps (s) = 0.14243196
  Final T=0.23025363  CN=1.0051284  DT=0.00024305591
- FPS = 6238.5482
+ FPS = 7027.9169
