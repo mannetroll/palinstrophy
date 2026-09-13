@@ -173,6 +173,8 @@ dependency): `uv run python -m unittest discover -s tests -v`. They require an
 accessible Apple GPU and otherwise skip. The tests share SciPy FFT results
 between the backends to check exact agreement of CFL scaling and both time
 integrators; production MLX FFTs can still introduce float32 rounding differences.
+FFT tests also check the patched GPU transforms against double-precision SciPy
+results, including normalization, batched fields, and native fallbacks.
 
     # Apple Silicon GPU run (MLX / Metal)
     $ uv run sim 1024 10000 10 1001 0.75 mlx 100 KM3
@@ -282,6 +284,18 @@ MLX differs from NumPy and CuPy in ways that shaped the port:
 - **Complex-by-real division squares the divisor.** MLX evaluates `complex / real`
   as a full complex quotient, so a regulariser like `1e-30` underflows float32 to
   zero and yields NaN. Those sites scale by the reciprocal instead.
+- **FFT phase precision.** For power-of-two solver grids from N=64 through 2048,
+  `_mlx_fft.py` generates a targeted patch to MLX's Stockham kernels: phase
+  factors are computed once in float64, rounded to float32, and looked up
+  directly. Unnormalized inverse transforms omit canceling scaling operations.
+  All transforms execute on the GPU. The implementation is stored in Python;
+  MLX compiles the generated Metal code at runtime, with no library rebuild or
+  installed-file changes. It uses the reviewed MLX 0.32.0 headers; different or
+  missing headers and other grid sizes retain the native MLX FFT.
+
+For the seed-1 PAO, N=512, 1001-step CNAB2 comparison, this FFT patch reduced the
+absolute final-time difference from the saved CPU reference from `1.48e-7` to
+`2.35e-9`. It improves accuracy without guaranteeing bit-for-bit CPU agreement.
 
 MLX results track the SciPy reference to float32 precision: relative L2 differences
 of ~1e-5 after 50 steps, and bulk statistics (energy, eddy-turnover time) agreeing
