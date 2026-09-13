@@ -858,6 +858,9 @@ class MainWindow(QMainWindow):
 
         self.t_over_tl_label = QLabel()
         self.t_over_tl_label.setMinimumWidth(360)
+        self.t_over_tl_label.setToolTip(
+            "T_R = turbulence time advanced / elapsed wall time since starting or resuming"
+        )
         self.t_over_tl_label.setText(self._format_eddy_metrics(*self._current_eddy_metrics()))
 
         # K0 selector
@@ -1004,9 +1007,7 @@ class MainWindow(QMainWindow):
         self._last_pixels_u8: Optional[np.ndarray] = None
         self._display_lut_buffer: Optional[np.ndarray] = None
 
-        # --- FPS from simulation start ---
-        self._sim_start_time = time.time()
-        self._sim_start_iter = self.sim.get_iteration()
+        self._reset_run_timing()
 
         # initial draw (omega mode)
         self.sim.set_variable(self.sim.VAR_OMEGA)
@@ -1057,7 +1058,7 @@ class MainWindow(QMainWindow):
         row1.addWidget(self.spectrum_button)
         row1.addWidget(self.metrics_button)
         row1.addSpacing(2)
-        row1.addSpacing(100)
+        row1.addSpacing(50)
         row1.addWidget(self.re_edit)
         row1.addWidget(self.t_over_tl_label)
         row1.addStretch(1)
@@ -1199,10 +1200,16 @@ class MainWindow(QMainWindow):
         self.start_button.setEnabled(not running)
         self.stop_button.setEnabled(running)
 
-    def on_start_clicked(self) -> None:
-        # reset FPS baseline to "new simulation start"
+    def _reset_run_timing(self) -> None:
+        """Use the same run interval for FPS and turbulence advancement rate."""
         self._sim_start_time = time.time()
         self._sim_start_iter = self.sim.get_iteration()
+        self._sim_start_t = self.sim.get_time()
+        self._t_r_display = 0.0
+        self._t_r_last_update = self._sim_start_time
+
+    def on_start_clicked(self) -> None:
+        self._reset_run_timing()
         if not self.timer.isActive():
             self.timer.start()
 
@@ -1235,6 +1242,7 @@ class MainWindow(QMainWindow):
         self.sim.re = Reynolds
         self.sim.state.Re = Reynolds
         self.sim.reset_field()
+        self._reset_run_timing()
         self._update_image(self.sim.get_frame_pixels())
         self._update_status(self.sim.get_time(), self.sim.get_iteration(), None)
         self.on_start_clicked()
@@ -1412,8 +1420,26 @@ class MainWindow(QMainWindow):
         return t_over_tl, U, L, tau_l
 
     @staticmethod
-    def _format_eddy_metrics(t_over_tl: float, U: float, L: float, TAU_L: float) -> str:
-        return f" T/τ_L: {t_over_tl:6.3f} | U: {U:5.3f} | L: {L:5.3f} | τ_L: {TAU_L:5.3f}"
+    def _format_eddy_metrics(
+        t_over_tl: float, U: float, L: float, TAU_L: float, t_r: float = 0.0,
+    ) -> str:
+        values = (t_over_tl, U, L, TAU_L, t_r)
+        labels = ("T/τ_L", "U", "L", "τ_L", "T_R")
+        formatted = (f"{value:.2f}".rstrip("0").rstrip(".") for value in values)
+        # Reserve two-decimal field widths even when trailing zeros are hidden.
+        return (" " + " | ".join(
+            f"{label}: {value:<4}" for label, value in zip(labels, formatted)
+        )).rstrip()
+
+    def _turbulence_time_ratio(self) -> float:
+        """Display the current run's time ratio at most twice per wall second."""
+        now = time.time()
+        if now - self._t_r_last_update >= 0.5:
+            elapsed = now - self._sim_start_time
+            advanced = max(0.0, self.sim.get_time() - self._sim_start_t)
+            self._t_r_display = advanced / elapsed if elapsed > 0.0 else 0.0
+            self._t_r_last_update = now
+        return self._t_r_display
 
     def _refresh_spectrum(self) -> None:
         """Redraw the energy spectrum into the persistent dialog label."""
@@ -1759,8 +1785,7 @@ class MainWindow(QMainWindow):
         self._csv_rows.clear()
         self._csv_header = list(CSV_HEADER)
         self._reset_spectrum_average(since_restart=True)
-        self._sim_start_time = time.time()
-        self._sim_start_iter = it
+        self._reset_run_timing()
         self.sim._next_dt_pending = False
         self._update_image(self.sim.get_frame_pixels())
         self._update_status(t, it, None)
@@ -1996,8 +2021,7 @@ class MainWindow(QMainWindow):
         self._csv_rows.clear()
         self._csv_header = list(CSV_HEADER)
         self._reset_spectrum_average()
-        self._sim_start_time = time.time()
-        self._sim_start_iter = self.sim.get_iteration()
+        self._reset_run_timing()
 
         # 1) Update the image first
         self._update_image(self.sim.get_frame_pixels())
@@ -2031,8 +2055,7 @@ class MainWindow(QMainWindow):
         self._csv_rows.clear()
         self._csv_header = list(CSV_HEADER)
         self._reset_spectrum_average()
-        self._sim_start_time = time.time()
-        self._sim_start_iter = self.sim.get_iteration()
+        self._reset_run_timing()
         self._update_image(self.sim.get_frame_pixels())
 
     def on_start_spectrum_changed(self, index: int = -1) -> None:
@@ -2044,8 +2067,7 @@ class MainWindow(QMainWindow):
         self._csv_rows.clear()
         self._csv_header = list(CSV_HEADER)
         self._reset_spectrum_average()
-        self._sim_start_time = time.time()
-        self._sim_start_iter = self.sim.get_iteration()
+        self._reset_run_timing()
         self._update_image(self.sim.get_frame_pixels())
 
     def on_method_changed(self, index: int = -1) -> None:
@@ -2230,8 +2252,7 @@ class MainWindow(QMainWindow):
                 self._csv_rows.clear()
                 self._csv_header = list(CSV_HEADER)
                 self._reset_spectrum_average()
-                self._sim_start_time = time.time()
-                self._sim_start_iter = self.sim.get_iteration()
+                self._reset_run_timing()
             else:
                 self.timer.stop()
                 print(" Max steps reached, simulation stopped (Auto-Reset OFF)")
@@ -2440,6 +2461,7 @@ class MainWindow(QMainWindow):
             row[CSV_U_INDEX],
             row[CSV_L_INDEX],
             row[CSV_TAU_L_INDEX],
+            self._turbulence_time_ratio(),
         ))
         self._csv_rows.append(row)
 
