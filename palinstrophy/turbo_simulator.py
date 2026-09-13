@@ -683,14 +683,16 @@ def _fft_mod_for_state(S: "DnsState"):
     ONLY FFT selection:
       - CPU: scipy.fft
       - GPU: cupyx.scipy.fft (fallback to cupy.fft if cupyx.scipy.fft is unavailable)
-      - MLX: mlx.core.fft (Metal)
+      - MLX: precision-patched Metal FFT for supported grids, else mlx.core.fft
     """
     if S.backend == "gpu":
         if _cpfft is not None:
             return _cpfft
         return S.xp.fft
     if S.backend == "mlx":
-        return S.xp.fft
+        from palinstrophy._mlx_fft import fft_for_shape
+
+        return fft_for_shape((S.NZ_full, S.NX_full))
     return _spfft
 
 
@@ -1291,8 +1293,8 @@ def create_dns_state(
         else:
             print(f"FFT plan_mod: {plan_mod.__name__}")
     elif state.backend == "mlx":
-        # MLX plans its own Metal FFTs internally; nothing to precompute here.
-        print(f"FFT: mlx.core.fft on {_mlx_device_summary(_mx) or 'Apple GPU'}")
+        fft_label = getattr(state.fft, "label", "mlx.core.fft")
+        print(f"FFT: {fft_label} on {_mlx_device_summary(_mx) or 'Apple GPU'}")
         if max(state.NX_full, state.NZ_full) > MLX_FFT_FAST_PATH_MAX:
             print(
                 f" WARNING: 3/2 grid is {state.NZ_full}x{state.NX_full}; MLX's fast Metal FFT"
@@ -1599,8 +1601,8 @@ def vfft_full_inverse_uc_full_to_ur_full(S: DnsState) -> None:
         )
         S.ur_full[0:2, :, :] = ur01
     elif S.backend == "mlx":
-        # MLX supports norm='forward' natively, so the unnormalized result comes
-        # back directly — same convention as the SciPy and cuFFT paths. STEP2B
+        # norm='forward' returns the unnormalized inverse, with the same
+        # convention as the SciPy and cuFFT paths. STEP2B
         # rebuilds all three nonlinear-product planes, while visualization now
         # consumes its scratch field directly, so no third plane is needed
         # between DNS steps.
