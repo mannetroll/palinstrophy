@@ -35,6 +35,7 @@ from palinstrophy.turbo_wrapper import DnsSimulator
 
 FUSION = "Fusion"
 RESTART_FILE = "restart.nc"
+STATS_REFRESH_INTERVAL = 0.2
 
 
 def _process_max_rss_bytes() -> int | None:
@@ -865,7 +866,6 @@ class MainWindow(QMainWindow):
         # Reynolds display (Re) — now computed by adapt_visc()
         self.re_edit = QLabel()
         self.re_edit.setToolTip("Reynolds Number (Re)")
-        self.re_edit.setFixedWidth(100)
         self.re_edit.setText(str(self.sim.re))
 
         self.t_over_tl_label = QLabel()
@@ -962,9 +962,16 @@ class MainWindow(QMainWindow):
         self.status = QStatusBar()
         self.setStatusBar(self.status)
         mono = QFontDatabase.systemFont(QFontDatabase.SystemFont.FixedFont)
-        self.status.setFont(mono)
-        self.re_edit.setFont(mono)
-        self.t_over_tl_label.setFont(mono)
+        if "Consolas" in QFontDatabase.families():
+            mono.setFamily("Consolas")
+            mono.setPointSizeF(12.0)
+        else:
+            mono.setPointSizeF(mono.pointSizeF() + 1.0)
+        for widget in (self.status, self.re_edit, self.t_over_tl_label):
+            widget.setFont(mono)
+            # Explicit styling preserves the font when Qt polishes the status bar.
+            widget.setStyleSheet(f'font-family: "{mono.family()}"; font-size: {mono.pointSizeF():g}pt;')
+        self.re_edit.setFixedWidth(self.re_edit.fontMetrics().horizontalAdvance(" Re: 1.000e+00") + 4)
 
         # Timer-based simulation (no QThread)
         self.timer = QTimer(self)
@@ -1069,7 +1076,7 @@ class MainWindow(QMainWindow):
         row1.addWidget(self.spectrum_button)
         row1.addWidget(self.metrics_button)
         row1.addSpacing(2)
-        row1.addSpacing(50)
+        row1.addSpacing(30)
         row1.addWidget(self.re_edit)
         row1.addWidget(self.t_over_tl_label)
         row1.addStretch(1)
@@ -1201,8 +1208,8 @@ class MainWindow(QMainWindow):
         self._sim_start_time = time.time()
         self._sim_start_iter = self.sim.get_iteration()
         self._sim_start_t = self.sim.get_time()
-        self._t_r_display = 0.0
-        self._t_r_last_update = self._sim_start_time
+        self._flow_stats_last_update = float("-inf")
+        self._status_last_update = float("-inf")
 
     def on_start_clicked(self) -> None:
         self._reset_run_timing()
@@ -1219,6 +1226,12 @@ class MainWindow(QMainWindow):
             self.timer.stop()
 
         self._update_run_buttons()
+        if self._csv_rows:
+            self._update_flow_stats_text(self._csv_rows[-1])
+            elapsed = time.time() - self._sim_start_time
+            steps = self.sim.get_iteration() - self._sim_start_iter
+            fps = steps / elapsed if elapsed > 0 else None
+            self._update_status(self.sim.get_time(), self.sim.get_iteration(), fps, force=True)
 
     def on_step_clicked(self) -> None:
         self.sim.step(1)
@@ -1421,21 +1434,27 @@ class MainWindow(QMainWindow):
     ) -> str:
         values = (t_over_tl, U, L, TAU_L, t_r)
         labels = ("T/τ_L", "U", "L", "τ_L", "T_R")
-        formatted = (f"{value:.2f}".rstrip("0").rstrip(".") for value in values)
-        # Reserve two-decimal field widths even when trailing zeros are hidden.
-        return (" " + " | ".join(
-            f"{label}: {value:<4}" for label, value in zip(labels, formatted)
-        )).rstrip()
+        formatted = (
+            f"{value:6.4f}" if label == "T_R" else f"{value:4.2f}"
+            for label, value in zip(labels, values)
+        )
+        return " " + " | ".join(f"{label}: {value}" for label, value in zip(labels, formatted))
+
+    def _update_flow_stats_text(self, row) -> None:
+        self.re_edit.setText(f" Re: {float(self.sim.re):.3e}")
+        self.t_over_tl_label.setText(self._format_eddy_metrics(
+            row[CSV_T_OVER_TAU_L_INDEX],
+            row[CSV_U_INDEX],
+            row[CSV_L_INDEX],
+            row[CSV_TAU_L_INDEX],
+            self._turbulence_time_ratio(),
+        ))
 
     def _turbulence_time_ratio(self) -> float:
-        """Display the current run's time ratio at most twice per wall second."""
-        now = time.time()
-        if now - self._t_r_last_update >= 0.5:
-            elapsed = now - self._sim_start_time
-            advanced = max(0.0, self.sim.get_time() - self._sim_start_t)
-            self._t_r_display = advanced / elapsed if elapsed > 0.0 else 0.0
-            self._t_r_last_update = now
-        return self._t_r_display
+        """Time advanced per wall second, sampled with the statistics text."""
+        elapsed = time.time() - self._sim_start_time
+        advanced = max(0.0, self.sim.get_time() - self._sim_start_t)
+        return advanced / elapsed if elapsed > 0.0 else 0.0
 
     def _refresh_spectrum(self) -> None:
         """Redraw the energy spectrum into the persistent dialog label."""
@@ -2446,21 +2465,16 @@ class MainWindow(QMainWindow):
 
         # Auto-adapt viscosity (and thus effective Re) every rendered update
         self.adapt_visc()
-        # show the computed Re (from adapt_visc) in the Re text field
-        self.re_edit.setText(f" Re: {float(self.sim.re):.3e}")
 
         # store in memory and write to a CSV file in dump_to_folder() method
         # store in memory (later written to CSV by dump_to_folder)
         row = self.get_csv_tuple()
         metrics_end_ns = time.perf_counter_ns() if benchmark is not None else 0
-        self.t_over_tl_label.setText(self._format_eddy_metrics(
-            row[CSV_T_OVER_TAU_L_INDEX],
-            row[CSV_U_INDEX],
-            row[CSV_L_INDEX],
-            row[CSV_TAU_L_INDEX],
-            self._turbulence_time_ratio(),
-        ))
         self._csv_rows.append(row)
+        now = time.monotonic()
+        if not self.timer.isActive() or now - self._flow_stats_last_update >= STATS_REFRESH_INTERVAL:
+            self._flow_stats_last_update = now
+            self._update_flow_stats_text(row)
 
         k = float(DISPLAY_NORM_K_STD)
         lo = self.mu - k * self.sig
@@ -2498,9 +2512,13 @@ class MainWindow(QMainWindow):
             benchmark.record_stage("host_normalize_scale", metrics_end_ns, normalize_end_ns)
             benchmark.record_stage("qt_image_pixmap", normalize_end_ns, qt_end_ns)
 
-    def _update_status(self, t: float, it: int, fps: Optional[float]) -> None:
-        fps_str = f"{fps:5.2f}" if fps is not None else " N/A"
-        sig_str = f"{int(self.sig)}" if self.sig is not None else " N/A"
+    def _update_status(self, t: float, it: int, fps: Optional[float], *, force: bool = False) -> None:
+        now = time.monotonic()
+        if not force and fps is not None and now - self._status_last_update < STATS_REFRESH_INTERVAL:
+            return
+        self._status_last_update = now
+        fps_str = f"{fps:6.2f}" if fps is not None else f"{'N/A':>6}"
+        sig_str = f"{int(self.sig):3d}" if self.sig is not None else "N/A"
 
         # DPP = Display Pixel Percentage
         # dpp = int(100 / self._display_scale())
@@ -2511,13 +2529,13 @@ class MainWindow(QMainWindow):
 
         # Grain metrics row
         if self.palinstrophy_over_enstrophy_kmax2 is None:
-            pr_str = "N/A"
+            pr_str = f"{'N/A':>5}"
         else:
-            pr_str = f"{(10000 * self.palinstrophy_over_enstrophy_kmax2):.1f}"
+            pr_str = f"{(10000 * self.palinstrophy_over_enstrophy_kmax2):5.1f}"
 
         txt = (
-            f"  FPS: {fps_str} | pal/Zkmax²: {pr_str} | σ: {sig_str} | Iter: {it:5d} | T: {t:6.3f} | dt: {dt:.6f} "
-            f"| {elapsed_min:4.1f} min | Visc: {visc:8.2e} | {_dt.datetime.now().strftime('%Y-%m-%d %H:%M')}"
+            f"  FPS:{fps_str} |pal/Zkmax²:{pr_str} |σ:{sig_str} |Iter:{it:7d} |T:{t:7.3f} |dt:{dt:.6f} "
+            f"|{elapsed_min:5.1f} min |Visc:{visc:8.2e} |{_dt.datetime.now().strftime('%Y-%m-%d %H:%M')}"
         )
         self.status.showMessage(txt)
 
