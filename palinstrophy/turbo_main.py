@@ -1435,7 +1435,7 @@ class MainWindow(QMainWindow):
         values = (t_over_tl, U, L, TAU_L, t_r)
         labels = ("T/τ_L", "U", "L", "τ_L", "T_R")
         formatted = (
-            f"{value:6.4f}" if label == "T_R" else f"{value:4.2f}"
+            f"{value:5.3f}" if label == "T_R" else f"{value:4.2f}"
             for label, value in zip(labels, values)
         )
         return " " + " | ".join(f"{label}: {value}" for label, value in zip(labels, formatted))
